@@ -40,6 +40,7 @@ interface Report {
 }
 
 interface AppState {
+  theme: 'light' | 'dark'
   repos: Repo[]
   accounts: Account[]
   commits: Commit[]
@@ -47,6 +48,7 @@ interface AppState {
   loading: boolean
   error: string | null
 
+  setTheme: (theme: 'light' | 'dark') => void
   setRepos: (repos: Repo[]) => void
   setAccounts: (accounts: Account[]) => void
   setCommits: (commits: Commit[]) => void
@@ -56,6 +58,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
+  theme: 'light',
   repos: [],
   accounts: [],
   commits: [],
@@ -63,6 +66,7 @@ export const useAppStore = create<AppState>((set) => ({
   loading: false,
   error: null,
 
+  setTheme: (theme) => set({ theme }),
   setRepos: (repos) => set({ repos }),
   setAccounts: (accounts) => set({ accounts }),
   setCommits: (commits) => set({ commits }),
