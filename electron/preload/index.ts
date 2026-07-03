@@ -1,0 +1,61 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { electronAPI } from '@electron-toolkit/preload'
+
+const api = {
+  // Git operations
+  git: {
+    addRepo: (repo: { name: string; remoteUrl: string; localPath: string; branch: string }) =>
+      ipcRenderer.invoke('git:add-repo', repo),
+    removeRepo: (id: number) => ipcRenderer.invoke('git:remove-repo', id),
+    getRepos: () => ipcRenderer.invoke('git:get-repos'),
+    syncCommits: (repoId: number, since: string) =>
+      ipcRenderer.invoke('git:sync-commits', repoId, since),
+    getCommits: (filters: { repoId?: number; since?: string; until?: string }) =>
+      ipcRenderer.invoke('git:get-commits', filters)
+  },
+
+  // Account operations
+  account: {
+    addAccount: (account: { username: string; token?: string; sshKey?: string; type: string }) =>
+      ipcRenderer.invoke('account:add-account', account),
+    removeAccount: (id: number) => ipcRenderer.invoke('account:remove-account', id),
+    getAccounts: () => ipcRenderer.invoke('account:get-accounts')
+  },
+
+  // Report operations
+  report: {
+    generateDaily: (date: string) => ipcRenderer.invoke('report:generate-daily', date),
+    generateWeekly: (date: string) => ipcRenderer.invoke('report:generate-weekly', date),
+    getReport: (type: string, date: string) => ipcRenderer.invoke('report:get-report', type, date),
+    saveReport: (report: { type: string; date: string; content: string }) =>
+      ipcRenderer.invoke('report:save-report', report)
+  },
+
+  // AI operations
+  ai: {
+    summarize: (commits: string[], type: 'daily' | 'weekly') =>
+      ipcRenderer.invoke('ai:summarize', commits, type),
+    configure: (config: { provider: string; apiKey?: string; model?: string }) =>
+      ipcRenderer.invoke('ai:configure', config)
+  },
+
+  // Stats operations
+  stats: {
+    getOverview: () => ipcRenderer.invoke('stats:overview'),
+    getTrend: (days: number) => ipcRenderer.invoke('stats:trend', days)
+  }
+}
+
+if (process.contextIsolated) {
+  try {
+    contextBridge.exposeInMainWorld('electron', electronAPI)
+    contextBridge.exposeInMainWorld('api', api)
+  } catch (error) {
+    console.error(error)
+  }
+} else {
+  // @ts-ignore
+  window.electron = electronAPI
+  // @ts-ignore
+  window.api = api
+}
