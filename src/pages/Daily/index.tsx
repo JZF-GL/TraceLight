@@ -6,49 +6,86 @@ import {
   EditOutlined,
   CheckOutlined
 } from '@ant-design/icons'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
 
-const { Title, Paragraph, Text } = Typography
+const { Paragraph, Text } = Typography
 const { TextArea } = Input
 
 interface CommitSummary {
+  id: number
   hash: string
   message: string
   repo_name: string
   date: string
 }
 
+declare global {
+  interface Window {
+    api: {
+      git: {
+        getCommits: (filters: { since?: string; until?: string }) => Promise<CommitSummary[]>
+      }
+      ai: {
+        summarize: (commits: string[], type: 'daily' | 'weekly') => Promise<string>
+      }
+      report: {
+        generateDaily: (date: string) => Promise<{ content: string; commits: CommitSummary[] }>
+        saveReport: (report: { type: string; date: string; content: string }) => Promise<unknown>
+      }
+    }
+  }
+}
+
 function Daily() {
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs())
   const [loading, setLoading] = useState(false)
-  const [aiGenerated, setAiGenerated] = useState(false)
+  const [, setAiGenerated] = useState(false)
   const [reportContent, setReportContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
+  const [commits, setCommits] = useState<CommitSummary[]>([])
 
-  const [commits] = useState<CommitSummary[]>([
-    { hash: 'abc123', message: 'feat: 新增用户登录模块', repo_name: 'TraceLight', date: '14:32' },
-    { hash: 'def456', message: 'fix: 修复分页查询Bug', repo_name: 'Backend', date: '11:20' },
-    { hash: 'ghi789', message: 'refactor: 重构缓存逻辑', repo_name: 'TraceLight', date: '09:45' }
-  ])
+  useEffect(() => {
+    loadCommits()
+  }, [selectedDate])
+
+  const loadCommits = async () => {
+    try {
+      const date = selectedDate.format('YYYY-MM-DD')
+      const result = await window.api.report.generateDaily(date)
+      setCommits(result.commits || [])
+      if (result.content) {
+        setReportContent(result.content)
+        setAiGenerated(true)
+      }
+    } catch {
+      message.error('生成失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const generateReport = async () => {
     setLoading(true)
     try {
-      // IPC call: api.ai.summarize(commits, 'daily')
-      // Simulate AI generation
-      setTimeout(() => {
-        setReportContent(`今日主要工作：
-
-1. 完成用户登录模块的开发，包括 Token 刷新机制和密码加密存储
-2. 修复分页查询在大数据量下的性能问题
-3. 重构缓存层逻辑，引入 LRU 淘汰策略`)
-        setAiGenerated(true)
-        setLoading(false)
-      }, 1000)
-    } catch (error) {
+      const commitMessages = commits.map(c => c.message)
+      const content = await window.api.ai.summarize(commitMessages, template === 'technical' ? 'daily' : 'daily')
+      setReportContent(content)
+      setAiGenerated(true)
+      
+      // Save report
+      const date = selectedDate.format('YYYY-MM-DD')
+      await window.api.report.saveReport({
+        type: 'daily',
+        date,
+        content
+      })
+      
+      message.success('日报生成成功')
+    } catch {
       message.error('生成失败')
+    } finally {
       setLoading(false)
     }
   }
@@ -57,7 +94,7 @@ function Daily() {
     try {
       await navigator.clipboard.writeText(reportContent)
       message.success('已复制到剪贴板')
-    } catch (error) {
+    } catch {
       message.error('复制失败')
     }
   }
@@ -90,9 +127,9 @@ function Daily() {
               <List.Item>
                 <Space>
                   <Tag>{item.repo_name}</Tag>
-                  <Text code>{item.hash.substring(0, 7)}</Text>
+                  <Text code>{item.hash?.substring(0, 7)}</Text>
                   <Text>{item.message}</Text>
-                  <Text type="secondary">{item.date}</Text>
+                  <Text type="secondary">{dayjs(item.date).format('HH:mm')}</Text>
                 </Space>
               </List.Item>
             )}

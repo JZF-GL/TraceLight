@@ -2,7 +2,7 @@ import { Layout, Menu, Switch, Typography, Space } from 'antd'
 import {
   DashboardOutlined,
   DatabaseOutlined,
-  CommitOutlined,
+  CodeOutlined,
   FileTextOutlined,
   CalendarOutlined,
   BarChartOutlined,
@@ -25,7 +25,7 @@ interface MainLayoutProps {
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/repos', icon: <DatabaseOutlined />, label: '仓库管理' },
-  { key: '/commits', icon: <CommitOutlined />, label: '提交记录' },
+  { key: '/commits', icon: <CodeOutlined />, label: '提交记录' },
   { key: '/daily', icon: <FileTextOutlined />, label: '日报' },
   { key: '/weekly', icon: <CalendarOutlined />, label: '周报' },
   { key: '/stats', icon: <BarChartOutlined />, label: '统计' },

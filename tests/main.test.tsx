@@ -10,20 +10,20 @@ describe('Main Entry Point', () => {
     const fs = require('fs');
     const path = require('path');
     const indexHtml = fs.readFileSync(
-      path.resolve(__dirname, '../index.html'),
+      path.resolve(__dirname, '../src/renderer/index.html'),
       'utf-8'
     );
     expect(indexHtml).toContain('id="root"');
   });
 
-  it('index.html references main.tsx', () => {
+  it('index.html references main entry', () => {
     const fs = require('fs');
     const path = require('path');
     const indexHtml = fs.readFileSync(
-      path.resolve(__dirname, '../index.html'),
+      path.resolve(__dirname, '../src/renderer/index.html'),
       'utf-8'
     );
-    expect(indexHtml).toContain('src/main.tsx');
+    expect(indexHtml).toContain('main.tsx');
   });
 
   it('main.tsx imports React', () => {

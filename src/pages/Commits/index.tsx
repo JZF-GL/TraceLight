@@ -18,8 +18,25 @@ interface Commit {
   repo_name: string
 }
 
+interface Repo {
+  id: number
+  name: string
+}
+
+declare global {
+  interface Window {
+    api: {
+      git: {
+        getCommits: (filters: { repoId?: number; since?: string; until?: string }) => Promise<Commit[]>
+        getRepos: () => Promise<Repo[]>
+      }
+    }
+  }
+}
+
 function Commits() {
   const [commits, setCommits] = useState<Commit[]>([])
+  const [repos, setRepos] = useState<Repo[]>([])
   const [loading, setLoading] = useState(false)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([
     dayjs().startOf('day'),
@@ -28,38 +45,39 @@ function Commits() {
   const [selectedRepo, setSelectedRepo] = useState<number | null>(null)
 
   useEffect(() => {
+    loadRepos()
+  }, [])
+
+  useEffect(() => {
     loadCommits()
   }, [dateRange, selectedRepo])
+
+  const loadRepos = async () => {
+    try {
+      const data = await window.api.git.getRepos()
+      setRepos(data)
+    } catch (error) {
+      console.error('Failed to load repos:', error)
+    }
+  }
 
   const loadCommits = async () => {
     setLoading(true)
     try {
-      // IPC call: api.git.getCommits({ since, until, repoId })
-      // For now, use mock data
-      setCommits([
-        {
-          id: 1,
-          hash: 'abc123def456',
-          message: 'feat: 新增用户登录模块',
-          author: '张三',
-          date: dayjs().subtract(1, 'hour').toISOString(),
-          additions: 150,
-          deletions: 20,
-          files_changed: 5,
-          repo_name: 'TraceLight'
-        },
-        {
-          id: 2,
-          hash: '789ghi012jkl',
-          message: 'fix: 修复分页查询Bug',
-          author: '张三',
-          date: dayjs().subtract(3, 'hour').toISOString(),
-          additions: 10,
-          deletions: 5,
-          files_changed: 1,
-          repo_name: 'Backend'
-        }
-      ])
+      const filters: { repoId?: number; since?: string; until?: string } = {}
+      
+      if (selectedRepo) {
+        filters.repoId = selectedRepo
+      }
+      if (dateRange[0]) {
+        filters.since = dateRange[0].startOf('day').toISOString()
+      }
+      if (dateRange[1]) {
+        filters.until = dateRange[1].endOf('day').toISOString()
+      }
+
+      const data = await window.api.git.getCommits(filters)
+      setCommits(data)
     } catch (error) {
       console.error('Failed to load commits:', error)
     } finally {
@@ -75,7 +93,7 @@ function Commits() {
       width: 100,
       render: (hash) => (
         <Text code style={{ fontSize: 12 }}>
-          {hash.substring(0, 7)}
+          {hash?.substring(0, 7)}
         </Text>
       )
     },
@@ -125,8 +143,11 @@ function Commits() {
             allowClear
             onChange={(value) => setSelectedRepo(value)}
           >
-            <Select.Option value={1}>TraceLight</Select.Option>
-            <Select.Option value={2}>Backend</Select.Option>
+            {repos.map(repo => (
+              <Select.Option key={repo.id} value={repo.id}>
+                {repo.name}
+              </Select.Option>
+            ))}
           </Select>
           <RangePicker
             value={dateRange as [dayjs.Dayjs, dayjs.Dayjs]}

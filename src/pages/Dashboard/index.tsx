@@ -1,7 +1,7 @@
 import { Card, Row, Col, Statistic, List, Typography, Button } from 'antd'
 import {
   DatabaseOutlined,
-  CommitOutlined,
+  CodeOutlined,
   FileTextOutlined,
   PlusOutlined
 } from '@ant-design/icons'
@@ -18,10 +18,25 @@ interface Stats {
 }
 
 interface RecentCommit {
+  id: number
   hash: string
   message: string
   repo_name: string
   date: string
+}
+
+declare global {
+  interface Window {
+    api: {
+      git: {
+        getCommits: (filters: { repoId?: number; since?: string; until?: string }) => Promise<RecentCommit[]>
+        getRepos: () => Promise<any[]>
+      }
+      stats: {
+        getOverview: () => Promise<Stats>
+      }
+    }
+  }
 }
 
 function Dashboard() {
@@ -30,42 +45,26 @@ function Dashboard() {
   const [recentCommits, setRecentCommits] = useState<RecentCommit[]>([])
 
   useEffect(() => {
-    // Load stats and recent commits
-    const loadData = async () => {
-      try {
-        // These would be IPC calls in the real app
-        // For now, use mock data
-        setStats({
-          totalRepos: 5,
-          totalCommits: 1234,
-          todayCommits: 12
-        })
-        setRecentCommits([
-          {
-            hash: 'abc123',
-            message: 'feat: 新增用户登录模块',
-            repo_name: 'TraceLight',
-            date: dayjs().subtract(1, 'hour').toISOString()
-          },
-          {
-            hash: 'def456',
-            message: 'fix: 修复分页查询Bug',
-            repo_name: 'Backend',
-            date: dayjs().subtract(3, 'hour').toISOString()
-          },
-          {
-            hash: 'ghi789',
-            message: 'refactor: 重构缓存逻辑',
-            repo_name: 'TraceLight',
-            date: dayjs().subtract(5, 'hour').toISOString()
-          }
-        ])
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error)
-      }
-    }
     loadData()
   }, [])
+
+  const loadData = async () => {
+    try {
+      // Load stats
+      const overview = await window.api.stats.getOverview()
+      setStats(overview)
+
+      // Load recent commits (today)
+      const today = dayjs().format('YYYY-MM-DD')
+      const commits = await window.api.git.getCommits({
+        since: `${today}T00:00:00`,
+        until: `${today}T23:59:59`
+      })
+      setRecentCommits(commits.slice(0, 5))
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error)
+    }
+  }
 
   return (
     <div>
@@ -77,7 +76,7 @@ function Dashboard() {
             <Statistic
               title="今日提交"
               value={stats.todayCommits}
-              prefix={<CommitOutlined />}
+              prefix={<CodeOutlined />}
               valueStyle={{ color: '#4F46E5' }}
             />
           </Card>
@@ -87,7 +86,7 @@ function Dashboard() {
             <Statistic
               title="总提交数"
               value={stats.totalCommits}
-              prefix={<CommitOutlined />}
+              prefix={<CodeOutlined />}
             />
           </Card>
         </Col>
@@ -135,7 +134,7 @@ function Dashboard() {
               <List.Item.Meta
                 title={
                   <Text code style={{ fontSize: 12 }}>
-                    {item.hash.substring(0, 7)}
+                    {item.hash?.substring(0, 7)}
                   </Text>
                 }
                 description={

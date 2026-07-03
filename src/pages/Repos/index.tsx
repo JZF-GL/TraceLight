@@ -12,6 +12,19 @@ interface Repo {
   created_at: string
 }
 
+declare global {
+  interface Window {
+    api: {
+      git: {
+        addRepo: (repo: Omit<Repo, 'id' | 'created_at'>) => Promise<Repo>
+        removeRepo: (id: number) => Promise<void>
+        getRepos: () => Promise<Repo[]>
+        syncCommits: (repoId: number, since: string) => Promise<any[]>
+      }
+    }
+  }
+}
+
 function Repos() {
   const [repos, setRepos] = useState<Repo[]>([])
   const [loading, setLoading] = useState(false)
@@ -25,10 +38,9 @@ function Repos() {
   const loadRepos = async () => {
     setLoading(true)
     try {
-      // IPC call: api.git.getRepos()
-      // For now, use mock data
-      setRepos([])
-    } catch (error) {
+      const data = await window.api.git.getRepos()
+      setRepos(data)
+    } catch {
       message.error('加载仓库失败')
     } finally {
       setLoading(false)
@@ -38,22 +50,22 @@ function Repos() {
   const handleAdd = async () => {
     try {
       const values = await form.validateFields()
-      // IPC call: api.git.addRepo(values)
+      await window.api.git.addRepo(values)
       message.success('仓库添加成功')
       setModalVisible(false)
       form.resetFields()
       loadRepos()
-    } catch (error) {
+    } catch {
       // Form validation failed
     }
   }
 
   const handleDelete = async (id: number) => {
     try {
-      // IPC call: api.git.removeRepo(id)
+      await window.api.git.removeRepo(id)
       message.success('仓库已删除')
       loadRepos()
-    } catch (error) {
+    } catch {
       message.error('删除失败')
     }
   }
@@ -61,9 +73,10 @@ function Repos() {
   const handleSync = async (repo: Repo) => {
     message.loading({ content: '正在同步...', key: 'sync' })
     try {
-      // IPC call: api.git.syncCommits(repo.id, new Date().toISOString())
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      await window.api.git.syncCommits(repo.id, since)
       message.success({ content: '同步完成', key: 'sync' })
-    } catch (error) {
+    } catch {
       message.error({ content: '同步失败', key: 'sync' })
     }
   }

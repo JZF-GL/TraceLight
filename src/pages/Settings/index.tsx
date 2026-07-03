@@ -1,51 +1,307 @@
-import { Card, Form, Input, Select, TimePicker, Switch, Button, Space, Divider, Typography, message } from 'antd'
-import { SaveOutlined, KeyOutlined, UserOutlined, ClockCircleOutlined } from '@ant-design/icons'
-import { useState } from 'react'
-import dayjs from 'dayjs'
+import { Card, Form, Input, Select, TimePicker, Switch, Button, Space, Divider, message, Tabs, List, Popconfirm, Modal } from 'antd'
+import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
+import { useState, useEffect } from 'react'
 
-const { Title, Text } = Typography
+interface Account {
+  id: number
+  username: string
+  token?: string
+  ssh_key?: string
+  type: 'github' | 'gitlab' | 'gitee'
+}
+
+interface Settings {
+  workStartTime: string
+  workEndTime: string
+  timezone: string
+  dailyReminder: boolean
+  dailyReminderTime: string
+  weeklyReminder: boolean
+  weeklyReminderTime: string
+}
+
+declare global {
+  interface Window {
+    api: {
+      account: {
+        addAccount: (account: Omit<Account, 'id'>) => Promise<Account>
+        removeAccount: (id: number) => Promise<void>
+        getAccounts: () => Promise<Account[]>
+      }
+    }
+  }
+}
 
 function Settings() {
-  const [form] = Form.useForm()
-  const [loading, setLoading] = useState(false)
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [modalVisible, setModalVisible] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [accountForm] = Form.useForm()
+  const [settingsForm] = Form.useForm()
+  const [settings, setSettings] = useState<Settings>({
+    workStartTime: '09:00',
+    workEndTime: '18:00',
+    timezone: 'Asia/Shanghai',
+    dailyReminder: true,
+    dailyReminderTime: '17:30',
+    weeklyReminder: true,
+    weeklyReminderTime: '17:00'
+  })
 
-  const handleSave = async () => {
+  useEffect(() => {
+    loadAccounts()
+    loadSettings()
+  }, [])
+
+  const loadAccounts = async () => {
     try {
-      const values = await form.validateFields()
-      setLoading(true)
-      // IPC call: save settings
-      setTimeout(() => {
-        message.success('设置已保存')
-        setLoading(false)
-      }, 500)
-    } catch (error) {
+      const data = await window.api.account.getAccounts()
+      setAccounts(data)
+    } catch {
+      message.error('加载账号失败')
+    }
+  }
+
+  const loadSettings = async () => {
+    try {
+      const saved = localStorage.getItem('settings')
+      if (saved) {
+        setSettings(JSON.parse(saved))
+      }
+    } catch {
+      message.error('保存失败')
+    }
+  }
+
+  const handleAddAccount = async () => {
+    try {
+      const values = await accountForm.validateFields()
+      if (editingAccount) {
+        // Update account (not implemented yet)
+        message.success('账号更新成功')
+      } else {
+        await window.api.account.addAccount(values)
+        message.success('账号添加成功')
+      }
+      setModalVisible(false)
+      setEditingAccount(null)
+      accountForm.resetFields()
+      loadAccounts()
+    } catch {
       // Form validation failed
     }
   }
 
+  const handleDeleteAccount = async (id: number) => {
+    try {
+      await window.api.account.removeAccount(id)
+      message.success('账号已删除')
+      loadAccounts()
+    } catch {
+      message.error('加载账号失败')
+    }
+  }
+
+  const handleEditAccount = (account: Account) => {
+    setEditingAccount(account)
+    accountForm.setFieldsValue(account)
+    setModalVisible(true)
+  }
+
+  const handleSaveSettings = async () => {
+    try {
+      const values = await settingsForm.validateFields()
+      const newSettings = { ...settings, ...values }
+      setSettings(newSettings)
+      localStorage.setItem('settings', JSON.stringify(newSettings))
+      message.success('设置已保存')
+    } catch {
+      message.error('删除失败')
+    }
+  }
+
+  const tabItems = [
+    {
+      key: 'accounts',
+      label: 'Git 账号',
+      children: (
+        <Card
+          title="Git 账号管理"
+          extra={
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditingAccount(null)
+                accountForm.resetFields()
+                setModalVisible(true)
+              }}
+            >
+              添加账号
+            </Button>
+          }
+        >
+          <List
+            dataSource={accounts}
+            renderItem={(account) => (
+              <List.Item
+                actions={[
+                  <Button
+                    type="link"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEditAccount(account)}
+                  >
+                    编辑
+                  </Button>,
+                  <Popconfirm
+                    title="确定删除该账号？"
+                    onConfirm={() => handleDeleteAccount(account.id)}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="link" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                ]}
+              >
+                <List.Item.Meta
+                  title={account.username}
+                  description={
+                    <Space>
+                      <span>类型: {account.type}</span>
+                      {account.token && <span>Token: ****</span>}
+                      {account.ssh_key && <span>SSH Key: 已配置</span>}
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+            locale={{ emptyText: '暂无账号，请添加' }}
+          />
+        </Card>
+      )
+    },
+    {
+      key: 'worktime',
+      label: '工作时间',
+      children: (
+        <Card title="工作时间设置">
+          <Form
+            form={settingsForm}
+            layout="vertical"
+            initialValues={settings}
+            onFinish={handleSaveSettings}
+          >
+            <Form.Item label="上班时间" name="workStartTime">
+              <TimePicker
+                format="HH:mm"
+                style={{ width: 200 }}
+              />
+            </Form.Item>
+
+            <Form.Item label="下班时间" name="workEndTime">
+              <TimePicker
+                format="HH:mm"
+                style={{ width: 200 }}
+              />
+            </Form.Item>
+
+            <Form.Item label="时区" name="timezone">
+              <Select style={{ width: 200 }}>
+                <Select.Option value="Asia/Shanghai">中国标准时间 (UTC+8)</Select.Option>
+                <Select.Option value="Asia/Tokyo">日本标准时间 (UTC+9)</Select.Option>
+                <Select.Option value="America/New_York">美国东部时间 (UTC-5)</Select.Option>
+                <Select.Option value="America/Los_Angeles">美国太平洋时间 (UTC-8)</Select.Option>
+                <Select.Option value="Europe/London">格林威治标准时间 (UTC+0)</Select.Option>
+              </Select>
+            </Form.Item>
+
+            <Divider />
+
+            <Form.Item
+              label="日报提醒"
+              name="dailyReminder"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+
+            <Form.Item label="提醒时间" name="dailyReminderTime">
+              <TimePicker
+                format="HH:mm"
+                style={{ width: 200 }}
+              />
+            </Form.Item>
+
+            <Divider />
+
+            <Form.Item
+              label="周报提醒"
+              name="weeklyReminder"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+
+            <Form.Item label="提醒时间" name="weeklyReminderTime">
+              <TimePicker
+                format="HH:mm"
+                style={{ width: 200 }}
+              />
+            </Form.Item>
+
+            <Form.Item>
+              <Button type="primary" icon={<SaveOutlined />} htmlType="submit">
+                保存设置
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      )
+    },
+    {
+      key: 'about',
+      label: '关于',
+      children: (
+        <Card title="关于 TraceLight">
+          <p>TraceLight 是一款 Git 提交日报/周报生成器，帮助开发者快速生成工作汇报。</p>
+          <p>版本: 0.1.0</p>
+          <p>技术栈: Electron + React + TypeScript + Ant Design</p>
+        </Card>
+      )
+    }
+  ]
+
   return (
     <div>
-      <Title level={3}>设置</Title>
+      <Tabs items={tabItems} />
 
-      <Card title="Git 账号" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical">
+      <Modal
+        title={editingAccount ? '编辑账号' : '添加账号'}
+        open={modalVisible}
+        onOk={handleAddAccount}
+        onCancel={() => {
+          setModalVisible(false)
+          setEditingAccount(null)
+          accountForm.resetFields()
+        }}
+        okText="确定"
+        cancelText="取消"
+      >
+        <Form form={accountForm} layout="vertical">
           <Form.Item
             name="username"
             label="用户名"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="Git 用户名" />
+            <Input placeholder="GitHub / GitLab / Gitee 用户名" />
           </Form.Item>
+
           <Form.Item
-            name="token"
-            label="Personal Access Token"
-          >
-            <Input.Password prefix={<KeyOutlined />} placeholder="ghp_xxxx 或 glpat-xxxx" />
-          </Form.Item>
-          <Form.Item
-            name="account_type"
+            name="type"
             label="平台类型"
-            initialValue="github"
+            rules={[{ required: true, message: '请选择平台类型' }]}
           >
             <Select>
               <Select.Option value="github">GitHub</Select.Option>
@@ -53,141 +309,24 @@ function Settings() {
               <Select.Option value="gitee">Gitee</Select.Option>
             </Select>
           </Form.Item>
-        </Form>
-      </Card>
 
-      <Card title="工作时间" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical">
           <Form.Item
-            name="work_start"
-            label="上班时间"
-            initialValue={dayjs('09:00', 'HH:mm')}
+            name="token"
+            label="Personal Access Token"
+            extra="用于 HTTPS 认证，可在平台设置中生成"
           >
-            <TimePicker format="HH:mm" />
+            <Input.Password placeholder="ghp_xxxxxxxxxxxx" />
           </Form.Item>
+
           <Form.Item
-            name="work_end"
-            label="下班时间"
-            initialValue={dayjs('18:00', 'HH:mm')}
+            name="ssh_key"
+            label="SSH 私钥路径"
+            extra="用于 SSH 认证，填写本地私钥文件路径"
           >
-            <TimePicker format="HH:mm" />
-          </Form.Item>
-          <Form.Item
-            name="timezone"
-            label="时区"
-            initialValue="Asia/Shanghai"
-          >
-            <Select>
-              <Select.Option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</Select.Option>
-              <Select.Option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</Select.Option>
-              <Select.Option value="America/New_York">America/New_York (UTC-5)</Select.Option>
-              <Select.Option value="Europe/London">Europe/London (UTC+0)</Select.Option>
-            </Select>
+            <Input placeholder="~/.ssh/id_rsa" />
           </Form.Item>
         </Form>
-      </Card>
-
-      <Card title="AI 配置" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="ai_provider"
-            label="AI 提供商"
-            initialValue="openai"
-          >
-            <Select>
-              <Select.Option value="openai">OpenAI</Select.Option>
-              <Select.Option value="ollama">Ollama (本地)</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="ai_api_key"
-            label="API Key"
-          >
-            <Input.Password placeholder="sk-xxxx" />
-          </Form.Item>
-          <Form.Item
-            name="ai_model"
-            label="模型"
-            initialValue="gpt-4o-mini"
-          >
-            <Select>
-              <Select.Option value="gpt-4o-mini">GPT-4o Mini</Select.Option>
-              <Select.Option value="gpt-4o">GPT-4o</Select.Option>
-              <Select.Option value="gpt-3.5-turbo">GPT-3.5 Turbo</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title="通知偏好" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="daily_reminder"
-            label="日报提醒"
-            valuePropName="checked"
-            initialValue={true}
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item
-            name="daily_reminder_time"
-            label="提醒时间"
-            initialValue={dayjs('17:30', 'HH:mm')}
-          >
-            <TimePicker format="HH:mm" />
-          </Form.Item>
-          <Form.Item
-            name="weekly_reminder"
-            label="周报提醒"
-            valuePropName="checked"
-            initialValue={true}
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item
-            name="weekly_reminder_day"
-            label="提醒日"
-            initialValue="friday"
-          >
-            <Select>
-              <Select.Option value="thursday">周四</Select.Option>
-              <Select.Option value="friday">周五</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title="外观">
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="auto_sync_interval"
-            label="自动同步间隔（分钟）"
-            initialValue={30}
-          >
-            <Select>
-              <Select.Option value={15}>15 分钟</Select.Option>
-              <Select.Option value={30}>30 分钟</Select.Option>
-              <Select.Option value={60}>1 小时</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Divider />
-
-      <Space>
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
-          onClick={handleSave}
-          loading={loading}
-        >
-          保存设置
-        </Button>
-        <Button onClick={() => form.resetFields()}>
-          重置
-        </Button>
-      </Space>
+      </Modal>
     </div>
   )
 }

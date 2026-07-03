@@ -1,32 +1,32 @@
 import { ipcMain } from 'electron'
 import { GitService } from '../services/git.service'
-import { DatabaseService } from '../services/database.service'
+import { getDatabaseService } from '../services/db'
 
 const gitService = new GitService()
-const dbService = new DatabaseService()
 
 export function registerGitHandlers(): void {
   ipcMain.handle('git:add-repo', async (_, repo) => {
-    return dbService.addRepo(repo)
+    return getDatabaseService().addRepo(repo)
   })
 
   ipcMain.handle('git:remove-repo', async (_, id) => {
-    return dbService.removeRepo(id)
+    return getDatabaseService().removeRepo(id)
   })
 
   ipcMain.handle('git:get-repos', async () => {
-    return dbService.getRepos()
+    return getDatabaseService().getRepos()
   })
 
   ipcMain.handle('git:sync-commits', async (_, repoId, since) => {
-    const repo = dbService.getRepoById(repoId)
+    const db = getDatabaseService()
+    const repo = db.getRepoById(repoId)
     if (!repo) throw new Error('Repo not found')
-    const commits = await gitService.getCommits(repo.localPath, repo.remoteUrl, since)
-    dbService.saveCommits(repoId, commits)
+    const commits = await gitService.getCommits(repo.local_path, repo.remote_url, since)
+    db.saveCommits(repoId, commits)
     return commits
   })
 
   ipcMain.handle('git:get-commits', async (_, filters) => {
-    return dbService.getCommits(filters)
+    return getDatabaseService().getCommits(filters)
   })
 }

@@ -29,6 +29,7 @@ interface Commit {
   additions: number
   deletions: number
   files_changed: number
+  repo_name?: string
 }
 
 interface Report {
@@ -123,7 +124,7 @@ export class DatabaseService {
     insertMany(commits)
   }
 
-  getCommits(filters: { repoId?: number; since?: string; until?: string }): Commit[] {
+  getCommits(filters: { repoId?: number; since?: string; until?: string }): (Commit & { repo_name: string })[] {
     let query = 'SELECT c.*, r.name as repo_name FROM commits c JOIN repos r ON c.repo_id = r.id WHERE 1=1'
     const params: (string | number)[] = []
 
@@ -141,7 +142,7 @@ export class DatabaseService {
     }
 
     query += ' ORDER BY c.date DESC'
-    return this.db.prepare(query).all(...params) as Commit[]
+    return this.db.prepare(query).all(...params) as (Commit & { repo_name: string })[]
   }
 
   addAccount(account: Omit<Account, 'id'>): Account {

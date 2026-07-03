@@ -1,6 +1,11 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { registerGitHandlers } from '../ipc/git'
+import { registerAccountHandlers } from '../ipc/account'
+import { registerReportHandlers } from '../ipc/report'
+import { registerAIHandlers } from '../ipc/ai'
+import { registerStatsHandlers } from '../ipc/stats'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +39,14 @@ function createWindow(): void {
   }
 }
 
+function registerAllHandlers(): void {
+  registerGitHandlers()
+  registerAccountHandlers()
+  registerReportHandlers()
+  registerAIHandlers()
+  registerStatsHandlers()
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.tracelight')
 
@@ -41,6 +54,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  registerAllHandlers()
   createWindow()
 
   app.on('activate', function () {

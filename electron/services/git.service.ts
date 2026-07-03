@@ -1,5 +1,5 @@
 import git from 'isomorphic-git'
-import http from 'isomorphic-git/http/web/index.cjs'
+import http from 'isomorphic-git/http/node'
 import fs from 'fs'
 
 interface CommitInfo {
