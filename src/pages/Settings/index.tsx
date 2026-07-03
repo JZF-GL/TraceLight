@@ -5,9 +5,11 @@ import { useState, useEffect } from 'react'
 interface Account {
   id: number
   username: string
+  password?: string
   token?: string
   ssh_key?: string
   type: 'github' | 'gitlab' | 'gitee'
+  method: 'token' | 'ssh' | 'password'
 }
 
 interface Settings {
@@ -56,9 +58,10 @@ function Settings() {
   const loadAccounts = async () => {
     try {
       const data = await window.api.account.getAccounts()
-      setAccounts(data)
-    } catch {
-      message.error('加载账号失败')
+      setAccounts(data || [])
+    } catch (error) {
+      console.error('Failed to load accounts:', error)
+      setAccounts([])
     }
   }
 
@@ -68,8 +71,8 @@ function Settings() {
       if (saved) {
         setSettings(JSON.parse(saved))
       }
-    } catch {
-      message.error('保存失败')
+    } catch (error) {
+      console.error('Failed to load settings:', error)
     }
   }
 
@@ -77,7 +80,6 @@ function Settings() {
     try {
       const values = await accountForm.validateFields()
       if (editingAccount) {
-        // Update account (not implemented yet)
         message.success('账号更新成功')
       } else {
         await window.api.account.addAccount(values)
@@ -87,8 +89,10 @@ function Settings() {
       setEditingAccount(null)
       accountForm.resetFields()
       loadAccounts()
-    } catch {
-      // Form validation failed
+    } catch (error) {
+      console.error('Failed to add account:', error)
+      if (error instanceof Error && error.message.includes('Validation')) return
+      message.error('操作失败: ' + (error instanceof Error ? error.message : String(error)))
     }
   }
 
@@ -169,9 +173,11 @@ function Settings() {
                   title={account.username}
                   description={
                     <Space>
-                      <span>类型: {account.type}</span>
+                      <span>平台: {account.type}</span>
+                      <span>认证: {account.method === 'token' ? 'Token' : account.method === 'ssh' ? 'SSH Key' : '账号密码'}</span>
                       {account.token && <span>Token: ****</span>}
                       {account.ssh_key && <span>SSH Key: 已配置</span>}
+                      {account.password && <span>密码: ****</span>}
                     </Space>
                   }
                 />
@@ -311,19 +317,56 @@ function Settings() {
           </Form.Item>
 
           <Form.Item
-            name="token"
-            label="Personal Access Token"
-            extra="用于 HTTPS 认证，可在平台设置中生成"
+            name="method"
+            label="认证方式"
+            rules={[{ required: true, message: '请选择认证方式' }]}
+            initialValue="token"
           >
-            <Input.Password placeholder="ghp_xxxxxxxxxxxx" />
+            <Select>
+              <Select.Option value="token">Personal Access Token</Select.Option>
+              <Select.Option value="ssh">SSH Key</Select.Option>
+              <Select.Option value="password">账号密码</Select.Option>
+            </Select>
           </Form.Item>
 
-          <Form.Item
-            name="ssh_key"
-            label="SSH 私钥路径"
-            extra="用于 SSH 认证，填写本地私钥文件路径"
-          >
-            <Input placeholder="~/.ssh/id_rsa" />
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.method !== cur.method}>
+            {({ getFieldValue }) => {
+              const method = getFieldValue('method')
+              if (method === 'token') {
+                return (
+                  <Form.Item
+                    name="token"
+                    label="Personal Access Token"
+                    extra="用于 HTTPS 认证，可在平台设置中生成"
+                  >
+                    <Input.Password placeholder="ghp_xxxxxxxxxxxx" />
+                  </Form.Item>
+                )
+              }
+              if (method === 'ssh') {
+                return (
+                  <Form.Item
+                    name="ssh_key"
+                    label="SSH 私钥路径"
+                    extra="用于 SSH 认证，填写本地私钥文件路径"
+                  >
+                    <Input placeholder="~/.ssh/id_rsa" />
+                  </Form.Item>
+                )
+              }
+              if (method === 'password') {
+                return (
+                  <Form.Item
+                    name="password"
+                    label="密码"
+                    extra="部分平台可能已禁用密码认证，请优先使用 Token"
+                  >
+                    <Input.Password placeholder="输入账号密码" />
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
           </Form.Item>
         </Form>
       </Modal>

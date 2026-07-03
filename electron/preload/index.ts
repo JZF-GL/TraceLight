@@ -6,17 +6,23 @@ const api = {
   git: {
     addRepo: (repo: { name: string; remote_url: string; local_path: string; branch: string }) =>
       ipcRenderer.invoke('git:add-repo', repo),
+    updateRepo: (id: number, repo: { name: string; remote_url: string; local_path: string; branch: string }) =>
+      ipcRenderer.invoke('git:update-repo', id, repo),
     removeRepo: (id: number) => ipcRenderer.invoke('git:remove-repo', id),
     getRepos: () => ipcRenderer.invoke('git:get-repos'),
-    syncCommits: (repoId: number, since: string) =>
-      ipcRenderer.invoke('git:sync-commits', repoId, since),
+    getRemoteBranches: (localPath: string) =>
+      ipcRenderer.invoke('git:get-remote-branches', localPath),
+    syncLocal: (repoId: number, since: string) =>
+      ipcRenderer.invoke('git:sync-local', repoId, since),
+    syncRemote: (repoId: number, since: string, auth?: { username?: string; password?: string; token?: string }) =>
+      ipcRenderer.invoke('git:sync-remote', repoId, since, auth),
     getCommits: (filters: { repoId?: number; since?: string; until?: string }) =>
       ipcRenderer.invoke('git:get-commits', filters)
   },
 
   // Account operations
   account: {
-    addAccount: (account: { username: string; token?: string; ssh_key?: string; type: string }) =>
+    addAccount: (account: { username: string; password?: string; token?: string; ssh_key?: string; type: string; method: string }) =>
       ipcRenderer.invoke('account:add-account', account),
     removeAccount: (id: number) => ipcRenderer.invoke('account:remove-account', id),
     getAccounts: () => ipcRenderer.invoke('account:get-accounts')

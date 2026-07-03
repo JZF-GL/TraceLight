@@ -54,13 +54,14 @@ function Daily() {
     try {
       const date = selectedDate.format('YYYY-MM-DD')
       const result = await window.api.report.generateDaily(date)
-      setCommits(result.commits || [])
-      if (result.content) {
+      setCommits(result?.commits || [])
+      if (result?.content) {
         setReportContent(result.content)
         setAiGenerated(true)
       }
-    } catch {
-      message.error('生成失败')
+    } catch (error) {
+      console.error('Failed to load commits:', error)
+      setCommits([])
     } finally {
       setLoading(false)
     }

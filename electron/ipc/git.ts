@@ -9,6 +9,10 @@ export function registerGitHandlers(): void {
     return getDatabaseService().addRepo(repo)
   })
 
+  ipcMain.handle('git:update-repo', async (_, id, repo) => {
+    return getDatabaseService().updateRepo(id, repo)
+  })
+
   ipcMain.handle('git:remove-repo', async (_, id) => {
     return getDatabaseService().removeRepo(id)
   })
@@ -17,11 +21,24 @@ export function registerGitHandlers(): void {
     return getDatabaseService().getRepos()
   })
 
-  ipcMain.handle('git:sync-commits', async (_, repoId, since) => {
+  ipcMain.handle('git:get-remote-branches', async (_, localPath) => {
+    return gitService.getRemoteBranches(localPath)
+  })
+
+  ipcMain.handle('git:sync-local', async (_, repoId, since) => {
     const db = getDatabaseService()
     const repo = db.getRepoById(repoId)
     if (!repo) throw new Error('Repo not found')
-    const commits = await gitService.getCommits(repo.local_path, repo.remote_url, since)
+    const commits = await gitService.getLocalCommits(repo.local_path, repo.branch, since)
+    db.saveCommits(repoId, commits)
+    return commits
+  })
+
+  ipcMain.handle('git:sync-remote', async (_, repoId, since, auth?) => {
+    const db = getDatabaseService()
+    const repo = db.getRepoById(repoId)
+    if (!repo) throw new Error('Repo not found')
+    const commits = await gitService.getRemoteCommits(repo.local_path, repo.remote_url, repo.branch, since, auth)
     db.saveCommits(repoId, commits)
     return commits
   })

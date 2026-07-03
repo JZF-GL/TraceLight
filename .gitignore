@@ -1,6 +1,57 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build output
 dist/
 out/
+release/
+
+# Logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Electron
+*.asar
+electron-builder.yml
+
+# Temporary files
+tmp/
+temp/
+.tracelight_tmp_*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Vite
+.vite/
+
+# Debug
+ERRORS.md

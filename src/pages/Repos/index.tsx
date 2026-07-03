@@ -1,6 +1,13 @@
-import { Card, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, message } from 'antd'
-import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined } from '@ant-design/icons'
-import { useEffect, useState } from 'react'
+import { Card, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Select } from 'antd'
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  SyncOutlined,
+  CloudDownloadOutlined,
+  BranchesOutlined
+} from '@ant-design/icons'
+import { useEffect, useState, useCallback } from 'react'
 import type { ColumnsType } from 'antd/es/table'
 
 interface Repo {
@@ -17,9 +24,16 @@ declare global {
     api: {
       git: {
         addRepo: (repo: Omit<Repo, 'id' | 'created_at'>) => Promise<Repo>
+        updateRepo: (id: number, repo: Omit<Repo, 'id' | 'created_at'>) => Promise<void>
         removeRepo: (id: number) => Promise<void>
         getRepos: () => Promise<Repo[]>
-        syncCommits: (repoId: number, since: string) => Promise<any[]>
+        getRemoteBranches: (localPath: string) => Promise<string[]>
+        syncLocal: (repoId: number, since: string) => Promise<any[]>
+        syncRemote: (repoId: number, since: string, auth?: { username?: string; password?: string; token?: string }) => Promise<any[]>
+        getCommits: (filters: { repoId?: number; since?: string; until?: string }) => Promise<any[]>
+      }
+      account: {
+        getAccounts: () => Promise<any[]>
       }
     }
   }
@@ -29,35 +43,88 @@ function Repos() {
   const [repos, setRepos] = useState<Repo[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
+  const [editingRepo, setEditingRepo] = useState<Repo | null>(null)
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [branchLoading, setBranchLoading] = useState(false)
+  const [branches, setBranches] = useState<string[]>([])
   const [form] = Form.useForm()
 
-  useEffect(() => {
-    loadRepos()
-  }, [])
-
-  const loadRepos = async () => {
+  const loadRepos = useCallback(async () => {
     setLoading(true)
     try {
       const data = await window.api.git.getRepos()
-      setRepos(data)
-    } catch {
-      message.error('加载仓库失败')
+      setRepos(data || [])
+    } catch (error) {
+      console.error('Failed to load repos:', error)
+      setRepos([])
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      const data = await window.api.account.getAccounts()
+      setAccounts(data || [])
+    } catch (error) {
+      console.error('Failed to load accounts:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadRepos()
+    loadAccounts()
+  }, [loadRepos, loadAccounts])
+
+  const handleFetchBranches = async () => {
+    const localPath = form.getFieldValue('local_path')
+    if (!localPath) {
+      message.warning('请先输入本地仓库路径')
+      return
+    }
+    setBranchLoading(true)
+    try {
+      const result = await window.api.git.getRemoteBranches(localPath)
+      setBranches(result || [])
+      if (result && result.length > 0) {
+        form.setFieldsValue({ branch: result[0] })
+        message.success(`获取到 ${result.length} 个分支`)
+      } else {
+        message.info('未找到分支，请检查本地路径是否为 git 仓库')
+      }
+    } catch (error) {
+      console.error('Failed to fetch branches:', error)
+      message.error('获取分支失败: ' + (error instanceof Error ? error.message : String(error)))
+    } finally {
+      setBranchLoading(false)
+    }
   }
 
-  const handleAdd = async () => {
+  const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      await window.api.git.addRepo(values)
-      message.success('仓库添加成功')
+      if (editingRepo) {
+        await window.api.git.updateRepo(editingRepo.id, values)
+        message.success('仓库更新成功')
+      } else {
+        await window.api.git.addRepo(values)
+        message.success('仓库添加成功')
+      }
       setModalVisible(false)
+      setEditingRepo(null)
       form.resetFields()
       loadRepos()
-    } catch {
-      // Form validation failed
+    } catch (error) {
+      console.error('Failed to save repo:', error)
+      message.error('操作失败: ' + (error instanceof Error ? error.message : String(error)))
     }
+  }
+
+  const handleEdit = (repo: Repo) => {
+    setEditingRepo(repo)
+    setBranches([])
+    form.setFieldsValue(repo)
+    setModalVisible(true)
   }
 
   const handleDelete = async (id: number) => {
@@ -70,14 +137,31 @@ function Repos() {
     }
   }
 
-  const handleSync = async (repo: Repo) => {
-    message.loading({ content: '正在同步...', key: 'sync' })
+  const handleSyncLocal = async (repo: Repo) => {
+    message.loading({ content: '正在从本地同步...', key: 'sync' })
     try {
       const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      await window.api.git.syncCommits(repo.id, since)
-      message.success({ content: '同步完成', key: 'sync' })
-    } catch {
-      message.error({ content: '同步失败', key: 'sync' })
+      await window.api.git.syncLocal(repo.id, since)
+      message.success({ content: '本地同步完成', key: 'sync' })
+      loadRepos()
+    } catch (error) {
+      console.error('Local sync failed:', error)
+      message.error({ content: '同步失败: ' + (error instanceof Error ? error.message : String(error)), key: 'sync' })
+    }
+  }
+
+  const handleSyncRemote = async (repo: Repo) => {
+    message.loading({ content: '正在从远程同步...', key: 'sync' })
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      const account = accounts[0]
+      const auth = account ? { username: account.username, token: account.token, password: account.password } : undefined
+      await window.api.git.syncRemote(repo.id, since, auth)
+      message.success({ content: '远程同步完成', key: 'sync' })
+      loadRepos()
+    } catch (error) {
+      console.error('Remote sync failed:', error)
+      message.error({ content: '同步失败: ' + (error instanceof Error ? error.message : String(error)), key: 'sync' })
     }
   }
 
@@ -86,6 +170,7 @@ function Repos() {
       title: '仓库名称',
       dataIndex: 'name',
       key: 'name',
+      width: 150,
       render: (text) => <strong>{text}</strong>
     },
     {
@@ -103,21 +188,33 @@ function Repos() {
     {
       title: '分支',
       dataIndex: 'branch',
-      key: 'branch'
+      key: 'branch',
+      width: 100
     },
     {
       title: '操作',
       key: 'action',
+      width: 300,
+      fixed: 'right',
       render: (_, record) => (
-        <Space>
+        <Space size="small">
           <Button
             type="link"
+            size="small"
             icon={<SyncOutlined />}
-            onClick={() => handleSync(record)}
+            onClick={() => handleSyncLocal(record)}
           >
-            同步
+            本地同步
           </Button>
-          <Button type="link" icon={<EditOutlined />}>
+          <Button
+            type="link"
+            size="small"
+            icon={<CloudDownloadOutlined />}
+            onClick={() => handleSyncRemote(record)}
+          >
+            远程同步
+          </Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
           <Popconfirm
@@ -126,7 +223,7 @@ function Repos() {
             okText="确定"
             cancelText="取消"
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
           </Popconfirm>
@@ -143,7 +240,12 @@ function Repos() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => setModalVisible(true)}
+            onClick={() => {
+              setEditingRepo(null)
+              setBranches([])
+              form.resetFields()
+              setModalVisible(true)
+            }}
           >
             添加仓库
           </Button>
@@ -154,15 +256,18 @@ function Repos() {
           dataSource={repos}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 
       <Modal
-        title="添加仓库"
+        title={editingRepo ? '编辑仓库' : '添加仓库'}
         open={modalVisible}
-        onOk={handleAdd}
+        onOk={handleSubmit}
         onCancel={() => {
           setModalVisible(false)
+          setEditingRepo(null)
+          setBranches([])
           form.resetFields()
         }}
         okText="确定"
@@ -190,16 +295,30 @@ function Repos() {
           >
             <Input placeholder="C:/Users/user/projects/my-project" />
           </Form.Item>
-          <Form.Item
-            name="branch"
-            label="默认分支"
-            initialValue="main"
-          >
-            <Select>
-              <Select.Option value="main">main</Select.Option>
-              <Select.Option value="master">master</Select.Option>
-              <Select.Option value="develop">develop</Select.Option>
-            </Select>
+          <Form.Item label="默认分支">
+            <Space.Compact style={{ width: '100%' }}>
+              {branches.length > 0 ? (
+                <Form.Item name="branch" noStyle>
+                  <Select
+                    placeholder="选择分支"
+                    style={{ width: 'calc(100% - 120px)' }}
+                    options={branches.map(b => ({ label: b, value: b }))}
+                    showSearch
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item name="branch" noStyle initialValue="main">
+                  <Input placeholder="点击「获取分支」自动填入" style={{ width: 'calc(100% - 120px)' }} />
+                </Form.Item>
+              )}
+              <Button
+                icon={<BranchesOutlined />}
+                loading={branchLoading}
+                onClick={handleFetchBranches}
+              >
+                获取分支
+              </Button>
+            </Space.Compact>
           </Form.Item>
         </Form>
       </Modal>

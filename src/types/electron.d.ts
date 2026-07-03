@@ -2,6 +2,7 @@ interface ElectronAPI {
   // Git operations
   git: {
     addRepo: (repo: { name: string; remote_url: string; local_path: string; branch: string }) => Promise<any>
+    updateRepo: (id: number, repo: { name: string; remote_url: string; local_path: string; branch: string }) => Promise<void>
     removeRepo: (id: number) => Promise<void>
     getRepos: () => Promise<Array<{
       id: number
@@ -11,7 +12,10 @@ interface ElectronAPI {
       branch: string
       created_at: string
     }>>
-    syncCommits: (repoId: number, since: string) => Promise<any[]>
+    syncCommits: (repoId: number, since: string, auth?: { username?: string; password?: string; token?: string }) => Promise<any[]>
+    getRemoteBranches: (localPath: string) => Promise<string[]>
+    syncLocal: (repoId: number, since: string) => Promise<any[]>
+    syncRemote: (repoId: number, since: string, auth?: { username?: string; password?: string; token?: string }) => Promise<any[]>
     getCommits: (filters: { repoId?: number; since?: string; until?: string }) => Promise<Array<{
       id: number
       hash: string
@@ -27,20 +31,24 @@ interface ElectronAPI {
 
   // Account operations
   account: {
-    addAccount: (account: { username: string; token?: string; ssh_key?: string; type: string }) => Promise<{
+    addAccount: (account: { username: string; password?: string; token?: string; ssh_key?: string; type: string; method: string }) => Promise<{
       id: number
       username: string
+      password?: string
       token?: string
       ssh_key?: string
       type: string
+      method: string
     }>
     removeAccount: (id: number) => Promise<void>
     getAccounts: () => Promise<Array<{
       id: number
       username: string
+      password?: string
       token?: string
       ssh_key?: string
       type: string
+      method: string
     }>>
   }
 

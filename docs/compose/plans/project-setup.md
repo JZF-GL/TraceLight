@@ -1,5 +1,10 @@
 # Project Setup Implementation Plan
 
+> [!NOTE]
+> This document may not reflect the current implementation.
+> See the final report for up-to-date state:
+> [Final Report](../reports/project-setup.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use compose:subagent (recommended) or compose:execute to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Scaffold a fully runnable Electron + React + TypeScript + Vite desktop app for TraceLight with all core dependencies configured and dev server working.

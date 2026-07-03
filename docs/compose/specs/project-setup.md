@@ -1,5 +1,10 @@
 # Project Setup Specification
 
+> [!NOTE]
+> This document may not reflect the current implementation.
+> See the final report for up-to-date state:
+> [Final Report](../reports/project-setup.md)
+
 > Scope: Initialize a fully runnable Electron + React + TypeScript + Vite desktop application for TraceLight.
 
 ## S1. Project Initialization

@@ -14,9 +14,11 @@ interface Repo {
 interface Account {
   id: number
   username: string
+  password?: string
   token?: string
   ssh_key?: string
   type: string
+  method: string
 }
 
 interface Commit {
@@ -64,9 +66,11 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
+        password TEXT,
         token TEXT,
         ssh_key TEXT,
-        type TEXT DEFAULT 'github'
+        type TEXT DEFAULT 'github',
+        method TEXT DEFAULT 'token'
       );
 
       CREATE TABLE IF NOT EXISTS commits (
@@ -98,6 +102,12 @@ export class DatabaseService {
     )
     const result = stmt.run(repo.name, repo.remote_url, repo.local_path, repo.branch)
     return { id: result.lastInsertRowid as number, ...repo, created_at: new Date().toISOString() }
+  }
+
+  updateRepo(id: number, repo: Omit<Repo, 'id' | 'created_at'>): void {
+    this.db.prepare(
+      'UPDATE repos SET name = ?, remote_url = ?, local_path = ?, branch = ? WHERE id = ?'
+    ).run(repo.name, repo.remote_url, repo.local_path, repo.branch, id)
   }
 
   removeRepo(id: number): void {
@@ -147,9 +157,9 @@ export class DatabaseService {
 
   addAccount(account: Omit<Account, 'id'>): Account {
     const stmt = this.db.prepare(
-      'INSERT INTO accounts (username, token, ssh_key, type) VALUES (?, ?, ?, ?)'
+      'INSERT INTO accounts (username, password, token, ssh_key, type, method) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    const result = stmt.run(account.username, account.token, account.ssh_key, account.type)
+    const result = stmt.run(account.username, account.password, account.token, account.ssh_key, account.type, account.method)
     return { id: result.lastInsertRowid as number, ...account }
   }
 

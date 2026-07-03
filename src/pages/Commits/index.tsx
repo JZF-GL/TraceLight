@@ -55,9 +55,10 @@ function Commits() {
   const loadRepos = async () => {
     try {
       const data = await window.api.git.getRepos()
-      setRepos(data)
+      setRepos(data || [])
     } catch (error) {
       console.error('Failed to load repos:', error)
+      setRepos([])
     }
   }
 
