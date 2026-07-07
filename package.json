@@ -57,11 +57,26 @@
     "vite": "^5.4.11",
     "vitest": "^3.2.1"
   },
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "author": "江卓峰",
+  "license": "ISC",
+  "build": {
+    "appId": "com.tracelight",
+    "productName": "TraceLight",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
 }
