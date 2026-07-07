@@ -1,6 +1,8 @@
-import { Card, Form, Input, Select, TimePicker, Switch, Button, Space, Divider, message, Tabs, List, Popconfirm, Modal } from 'antd'
-import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
+import { Card, Form, Input, Select, TimePicker, Switch, Button, Space, Divider, message, Tabs, List, Popconfirm, Modal, Statistic, Row, Col } from 'antd'
+import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined, ClearOutlined, DatabaseOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
+import dayjs from 'dayjs'
+import { useAppStore } from '../../stores/app'
 
 interface Account {
   id: number
@@ -8,30 +10,25 @@ interface Account {
   password?: string
   token?: string
   ssh_key?: string
-  type: 'github' | 'gitlab' | 'gitee'
-  method: 'token' | 'ssh' | 'password'
+  type: string
+  method: string
 }
 
 interface Settings {
-  workStartTime: string
-  workEndTime: string
+  workStartTime: dayjs.Dayjs
+  workEndTime: dayjs.Dayjs
   timezone: string
   dailyReminder: boolean
-  dailyReminderTime: string
+  dailyReminderTime: dayjs.Dayjs
   weeklyReminder: boolean
-  weeklyReminderTime: string
+  weeklyReminderTime: dayjs.Dayjs
 }
 
-declare global {
-  interface Window {
-    api: {
-      account: {
-        addAccount: (account: Omit<Account, 'id'>) => Promise<Account>
-        removeAccount: (id: number) => Promise<void>
-        getAccounts: () => Promise<Account[]>
-      }
-    }
-  }
+interface AIConfig {
+  provider: 'local' | 'openai' | 'ollama'
+  apiKey?: string
+  model?: string
+  baseUrl?: string
 }
 
 function Settings() {
@@ -40,20 +37,83 @@ function Settings() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [accountForm] = Form.useForm()
   const [settingsForm] = Form.useForm()
+  const [aiForm] = Form.useForm()
   const [settings, setSettings] = useState<Settings>({
-    workStartTime: '09:00',
-    workEndTime: '18:00',
+    workStartTime: dayjs('09:00', 'HH:mm'),
+    workEndTime: dayjs('18:00', 'HH:mm'),
     timezone: 'Asia/Shanghai',
     dailyReminder: true,
-    dailyReminderTime: '17:30',
+    dailyReminderTime: dayjs('17:30', 'HH:mm'),
     weeklyReminder: true,
-    weeklyReminderTime: '17:00'
+    weeklyReminderTime: dayjs('17:00', 'HH:mm')
   })
+  const [aiConfig, setAiConfig] = useState<AIConfig>({
+    provider: 'local'
+  })
+  const [storageInfo, setStorageInfo] = useState({ database: 0, cache: 0, localStorage: 0, total: 0 })
+  const [clearing, setClearing] = useState(false)
+  const isDarkMode = useAppStore((s) => s.theme === 'dark')
+  const setTheme = useAppStore((s) => s.setTheme)
 
   useEffect(() => {
     loadAccounts()
     loadSettings()
+    loadAIConfig()
+    loadStorageInfo()
   }, [])
+
+  const loadStorageInfo = async () => {
+    try {
+      const info = await window.api.settings.getStorageInfo()
+      setStorageInfo(info)
+    } catch (error) {
+      console.error('Failed to load storage info:', error)
+    }
+  }
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const handleClearAllData = async () => {
+    setClearing(true)
+    try {
+      const result = await window.api.settings.clearAllData()
+      if (result.success) {
+        message.success('所有数据已清除，页面将刷新')
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      } else if (!result.cancelled) {
+        message.error('清除失败: ' + (result.error || '未知错误'))
+      }
+    } catch (error) {
+      message.error('清除失败')
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const handleClearCache = async () => {
+    setClearing(true)
+    try {
+      const result = await window.api.settings.clearCache()
+      if (result.success) {
+        message.success('缓存已清除')
+        loadStorageInfo()
+      } else {
+        message.error('清除失败: ' + (result.error || '未知错误'))
+      }
+    } catch (error) {
+      message.error('清除失败')
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const loadAccounts = async () => {
     try {
@@ -69,10 +129,33 @@ function Settings() {
     try {
       const saved = localStorage.getItem('settings')
       if (saved) {
-        setSettings(JSON.parse(saved))
+        const parsed = JSON.parse(saved)
+        setSettings({
+          ...parsed,
+          workStartTime: dayjs(parsed.workStartTime, 'HH:mm'),
+          workEndTime: dayjs(parsed.workEndTime, 'HH:mm'),
+          dailyReminderTime: dayjs(parsed.dailyReminderTime, 'HH:mm'),
+          weeklyReminderTime: dayjs(parsed.weeklyReminderTime, 'HH:mm')
+        })
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
+    }
+  }
+
+  const loadAIConfig = async () => {
+    try {
+      const config = await window.api.ai.getConfig()
+      const aiConf: AIConfig = {
+        provider: (config.provider as AIConfig['provider']) || 'local',
+        apiKey: config.apiKey,
+        model: config.model,
+        baseUrl: config.baseUrl
+      }
+      setAiConfig(aiConf)
+      aiForm.setFieldsValue(aiConf)
+    } catch (error) {
+      console.error('Failed to load AI config:', error)
     }
   }
 
@@ -80,6 +163,7 @@ function Settings() {
     try {
       const values = await accountForm.validateFields()
       if (editingAccount) {
+        await window.api.account.updateAccount(editingAccount.id, values)
         message.success('账号更新成功')
       } else {
         await window.api.account.addAccount(values)
@@ -117,14 +201,62 @@ function Settings() {
       const values = await settingsForm.validateFields()
       const newSettings = { ...settings, ...values }
       setSettings(newSettings)
-      localStorage.setItem('settings', JSON.stringify(newSettings))
+      localStorage.setItem('settings', JSON.stringify({
+        ...newSettings,
+        workStartTime: newSettings.workStartTime?.format('HH:mm'),
+        workEndTime: newSettings.workEndTime?.format('HH:mm'),
+        dailyReminderTime: newSettings.dailyReminderTime?.format('HH:mm'),
+        weeklyReminderTime: newSettings.weeklyReminderTime?.format('HH:mm')
+      }))
       message.success('设置已保存')
     } catch {
-      message.error('删除失败')
+      message.error('保存失败')
+    }
+  }
+
+  const handleSaveAIConfig = async () => {
+    try {
+      const values = await aiForm.validateFields()
+      await window.api.ai.configure(values)
+      const aiConf: AIConfig = {
+        provider: values.provider as AIConfig['provider'],
+        apiKey: values.apiKey,
+        model: values.model,
+        baseUrl: values.baseUrl
+      }
+      setAiConfig(aiConf)
+      message.success('AI 配置已保存')
+    } catch {
+      message.error('保存失败')
     }
   }
 
   const tabItems = [
+    {
+      key: 'system',
+      label: '系统设置',
+      children: (
+        <Card title="系统设置">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 400 }}>
+            <Space>
+              {isDarkMode ? <MoonOutlined /> : <SunOutlined />}
+              <span>外观模式</span>
+            </Space>
+            <Space>
+              <span style={{ color: isDarkMode ? '#999' : '#333' }}>{isDarkMode ? '深色' : '浅色'}</span>
+              <Switch
+                checked={isDarkMode}
+                onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                checkedChildren={<MoonOutlined />}
+                unCheckedChildren={<SunOutlined />}
+              />
+            </Space>
+          </div>
+          <Divider />
+          <p style={{ color: '#999', marginBottom: 0 }}>后续将在这里添加更多系统级配置项。</p>
+        </Card>
+      )
+    },
     {
       key: 'accounts',
       label: 'Git 账号',
@@ -185,6 +317,96 @@ function Settings() {
             )}
             locale={{ emptyText: '暂无账号，请添加' }}
           />
+        </Card>
+      )
+    },
+    {
+      key: 'ai',
+      label: 'AI 配置',
+      children: (
+        <Card title="AI 大模型配置">
+          <Form
+            form={aiForm}
+            layout="vertical"
+            initialValues={aiConfig}
+            onFinish={handleSaveAIConfig}
+          >
+            <Form.Item
+              label="模型提供商"
+              name="provider"
+              rules={[{ required: true, message: '请选择模型提供商' }]}
+            >
+              <Select style={{ width: 300 }}>
+                <Select.Option value="local">本地生成（无需 API）</Select.Option>
+                <Select.Option value="openai">OpenAI</Select.Option>
+                <Select.Option value="ollama">Ollama（本地部署）</Select.Option>
+              </Select>
+            </Form.Item>
+
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+              {({ getFieldValue }) => {
+                const provider = getFieldValue('provider')
+                if (provider === 'local') {
+                  return (
+                    <div style={{ color: '#666', marginBottom: 16 }}>
+                      使用本地模板生成日报/周报，无需配置 API。如需更智能的总结，请选择 OpenAI 或 Ollama。
+                    </div>
+                  )
+                }
+                return null
+              }}
+            </Form.Item>
+
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+              {({ getFieldValue }) => {
+                const provider = getFieldValue('provider')
+                if (provider !== 'local') {
+                  return (
+                    <>
+                      <Form.Item
+                        label="API 地址"
+                        name="baseUrl"
+                        extra={provider === 'openai' ? '默认: https://api.openai.com' : '例如: http://localhost:11434'}
+                      >
+                        <Input
+                          placeholder={provider === 'openai' ? 'https://api.openai.com' : 'http://localhost:11434'}
+                          style={{ width: 400 }}
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        label="API Key"
+                        name="apiKey"
+                        rules={[{ required: true, message: '请输入 API Key' }]}
+                      >
+                        <Input.Password
+                          placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                          style={{ width: 400 }}
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        label="模型名称"
+                        name="model"
+                      >
+                        <Input
+                          placeholder={provider === 'openai' ? 'gpt-3.5-turbo' : 'llama2'}
+                          style={{ width: 300 }}
+                        />
+                      </Form.Item>
+                    </>
+                  )
+                }
+                return null
+              }}
+            </Form.Item>
+
+            <Form.Item>
+              <Button type="primary" icon={<SaveOutlined />} htmlType="submit">
+                保存配置
+              </Button>
+            </Form.Item>
+          </Form>
         </Card>
       )
     },
@@ -274,6 +496,58 @@ function Settings() {
           <p>TraceLight 是一款 Git 提交日报/周报生成器，帮助开发者快速生成工作汇报。</p>
           <p>版本: 0.1.0</p>
           <p>技术栈: Electron + React + TypeScript + Ant Design</p>
+          <Divider />
+          <p><strong>开发者：</strong>江卓峰</p>
+          <p><strong>技术交流：</strong>微信号 XXJiangZF</p>
+        </Card>
+      )
+    },
+    {
+      key: 'data',
+      label: '数据管理',
+      children: (
+        <Card title="数据与存储">
+          <Row gutter={16} style={{ marginBottom: 24 }}>
+            <Col span={6}>
+              <Statistic title="数据库" value={formatSize(storageInfo.database)} />
+            </Col>
+            <Col span={6}>
+              <Statistic title="缓存" value={formatSize(storageInfo.cache)} />
+            </Col>
+            <Col span={6}>
+              <Statistic title="本地存储" value={formatSize(storageInfo.localStorage)} />
+            </Col>
+            <Col span={6}>
+              <Statistic title="总计" value={formatSize(storageInfo.total)} />
+            </Col>
+          </Row>
+
+          <Divider />
+
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Card type="inner" title="清除缓存" extra={<Button icon={<ClearOutlined />} onClick={handleClearCache} loading={clearing}>清除缓存</Button>}>
+              <p>清除应用缓存数据，不会影响仓库、账号和提交记录。</p>
+            </Card>
+
+            <Card
+              type="inner"
+              title="清除所有数据"
+              extra={
+                <Popconfirm
+                  title="确定要清除所有数据吗？"
+                  description="此操作将删除所有仓库、账号、提交记录和报告，且无法恢复！"
+                  onConfirm={handleClearAllData}
+                  okText="确认清除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button danger icon={<DeleteOutlined />} loading={clearing}>清除所有数据</Button>
+                </Popconfirm>
+              }
+            >
+              <p>删除所有应用数据，包括：仓库配置、Git 账号、提交记录、生成的报告等。此操作不可恢复。</p>
+            </Card>
+          </Space>
         </Card>
       )
     }

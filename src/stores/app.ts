@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import dayjs from 'dayjs'
 
 interface Repo {
   id: number
@@ -19,7 +20,7 @@ interface Account {
 
 interface Commit {
   id: number
-  repo_id: number
+  repo_id?: number
   hash: string
   message: string
   author: string
@@ -27,7 +28,7 @@ interface Commit {
   additions: number
   deletions: number
   files_changed: number
-  repo_name?: string
+  repo_name: string
 }
 
 interface Report {
@@ -39,6 +40,27 @@ interface Report {
   created_at: string
 }
 
+interface CommitsPageState {
+  dateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null]
+  selectedRepo: number | null
+  quickRange: 'today' | 'week' | 'month' | null
+  commits: Commit[]
+}
+
+interface DailyPageState {
+  selectedDate: dayjs.Dayjs
+  selectedAuthor: string | undefined
+  reportContent: string
+  commits: any[]
+}
+
+interface WeeklyPageState {
+  selectedWeek: dayjs.Dayjs
+  selectedAuthor: string | undefined
+  reportContent: string
+  commits: any[]
+}
+
 interface AppState {
   theme: 'light' | 'dark'
   repos: Repo[]
@@ -48,6 +70,10 @@ interface AppState {
   loading: boolean
   error: string | null
 
+  commitsPage: CommitsPageState
+  dailyPage: DailyPageState
+  weeklyPage: WeeklyPageState
+
   setTheme: (theme: 'light' | 'dark') => void
   setRepos: (repos: Repo[]) => void
   setAccounts: (accounts: Account[]) => void
@@ -55,22 +81,76 @@ interface AppState {
   setReports: (reports: Report[]) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+
+  setCommitsPage: (state: Partial<CommitsPageState>) => void
+  setDailyPage: (state: Partial<DailyPageState>) => void
+  setWeeklyPage: (state: Partial<WeeklyPageState>) => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  theme: 'light',
-  repos: [],
-  accounts: [],
-  commits: [],
-  reports: [],
-  loading: false,
-  error: null,
+export const useAppStore = create<AppState>((set) => {
+  const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
+  const savedCommitsPage = localStorage.getItem('commitsPage')
+  let initCommitsPage = {
+    dateRange: [dayjs().startOf('day'), dayjs().endOf('day')] as [dayjs.Dayjs, dayjs.Dayjs],
+    selectedRepo: null as number | null,
+    quickRange: 'today' as 'today' | 'week' | 'month' | null,
+    commits: [] as Commit[]
+  }
+  if (savedCommitsPage) {
+    try {
+      const parsed = JSON.parse(savedCommitsPage)
+      initCommitsPage = {
+        ...parsed,
+        dateRange: [dayjs(parsed.dateRange[0]), dayjs(parsed.dateRange[1])],
+        commits: []
+      }
+    } catch { /* ignore */ }
+  }
 
-  setTheme: (theme) => set({ theme }),
-  setRepos: (repos) => set({ repos }),
-  setAccounts: (accounts) => set({ accounts }),
-  setCommits: (commits) => set({ commits }),
-  setReports: (reports) => set({ reports }),
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error })
-}))
+  return {
+    theme: savedTheme || 'light',
+    repos: [],
+    accounts: [],
+    commits: [],
+    reports: [],
+    loading: false,
+    error: null,
+
+    commitsPage: initCommitsPage,
+    dailyPage: {
+      selectedDate: dayjs(),
+      selectedAuthor: undefined,
+      reportContent: '',
+      commits: []
+    },
+    weeklyPage: {
+      selectedWeek: dayjs(),
+      selectedAuthor: undefined,
+      reportContent: '',
+      commits: []
+    },
+
+    setTheme: (theme) => {
+      localStorage.setItem('theme', theme)
+      set({ theme })
+    },
+    setRepos: (repos) => set({ repos }),
+    setAccounts: (accounts) => set({ accounts }),
+    setCommits: (commits) => set({ commits }),
+    setReports: (reports) => set({ reports }),
+    setLoading: (loading) => set({ loading }),
+    setError: (error) => set({ error }),
+
+    setCommitsPage: (state) => set((s) => {
+      const next = { ...s.commitsPage, ...state }
+      const toSave = {
+        ...next,
+        dateRange: [next.dateRange[0]?.toISOString(), next.dateRange[1]?.toISOString()]
+      }
+      localStorage.setItem('commitsPage', JSON.stringify(toSave))
+      return { commitsPage: next }
+    }),
+    setDailyPage: (state) => set((s) => ({ dailyPage: { ...s.dailyPage, ...state } })),
+    setWeeklyPage: (state) => set((s) => ({ weeklyPage: { ...s.weeklyPage, ...state } }))
+  }
+})

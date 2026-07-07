@@ -1,4 +1,4 @@
-import { Card, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Select } from 'antd'
+import { Card, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Select, Pagination } from 'antd'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -48,6 +48,8 @@ function Repos() {
   const [branchLoading, setBranchLoading] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
   const [form] = Form.useForm()
+  const [page, setPage] = useState(1)
+  const pageSize = 20
 
   const loadRepos = useCallback(async () => {
     setLoading(true)
@@ -151,17 +153,32 @@ function Repos() {
   }
 
   const handleSyncRemote = async (repo: Repo) => {
+    if (!accounts || accounts.length === 0) {
+      message.warning({ content: '请先在设置页面添加 Git 账号', key: 'sync' })
+      return
+    }
+
+    const account = accounts[0]
+    if (!account.token && !account.password) {
+      message.warning({ content: '账号未配置认证信息（Token 或密码），请先编辑账号', key: 'sync' })
+      return
+    }
+
     message.loading({ content: '正在从远程同步...', key: 'sync' })
     try {
       const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      const account = accounts[0]
-      const auth = account ? { username: account.username, token: account.token, password: account.password } : undefined
+      const auth = { username: account.username, token: account.token, password: account.password }
       await window.api.git.syncRemote(repo.id, since, auth)
       message.success({ content: '远程同步完成', key: 'sync' })
       loadRepos()
     } catch (error) {
       console.error('Remote sync failed:', error)
-      message.error({ content: '同步失败: ' + (error instanceof Error ? error.message : String(error)), key: 'sync' })
+      const errMsg = error instanceof Error ? error.message : String(error)
+      if (errMsg.includes('401') || errMsg.includes('Unauthorized')) {
+        message.error({ content: '认证失败，请检查账号的 Token 或密码是否正确', key: 'sync' })
+      } else {
+        message.error({ content: '同步失败: ' + errMsg, key: 'sync' })
+      }
     }
   }
 
@@ -177,12 +194,14 @@ function Repos() {
       title: '远程地址',
       dataIndex: 'remote_url',
       key: 'remote_url',
+      width: 100,
       ellipsis: true
     },
     {
       title: '本地路径',
       dataIndex: 'local_path',
       key: 'local_path',
+      width: 100,
       ellipsis: true
     },
     {
@@ -194,7 +213,7 @@ function Repos() {
     {
       title: '操作',
       key: 'action',
-      width: 300,
+      width: 400,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -233,9 +252,11 @@ function Repos() {
   ]
 
   return (
-    <div>
+    <div style={{ height: 'calc(100vh - 96px)', display: 'flex', flexDirection: 'column' }}>
       <Card
         title="仓库管理"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+        styles={{ body: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' } }}
         extra={
           <Button
             type="primary"
@@ -253,11 +274,22 @@ function Repos() {
       >
         <Table
           columns={columns}
-          dataSource={repos}
+          dataSource={repos.slice((page - 1) * pageSize, page * pageSize)}
           rowKey="id"
           loading={loading}
-          scroll={{ x: 'max-content' }}
+          pagination={false}
+          scroll={{ x: 850, y: 'calc(100vh - 300px)' }}
+          style={{ flex: 1, minHeight: 0 }}
         />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 12, flexShrink: 0 }}>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={repos.length}
+            showSizeChanger={false}
+            onChange={setPage}
+          />
+        </div>
       </Card>
 
       <Modal

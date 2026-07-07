@@ -54,12 +54,9 @@ function Dashboard() {
       const overview = await window.api.stats.getOverview()
       setStats(overview)
 
-      // Load recent commits (today)
-      const today = dayjs().format('YYYY-MM-DD')
-      const commits = await window.api.git.getCommits({
-        since: `${today}T00:00:00`,
-        until: `${today}T23:59:59`
-      })
+      // Load recent commits (recent 7 days)
+      const since = dayjs().subtract(7, 'day').format('YYYY-MM-DD')
+      const commits = await window.api.git.getCommits({ since })
       setRecentCommits(commits.slice(0, 5))
     } catch (error) {
       console.error('Failed to load dashboard data:', error)

@@ -7,11 +7,9 @@ export function registerStatsHandlers(): void {
   })
 
   ipcMain.handle('stats:trend', async (_, days: number) => {
-    const commits = getDatabaseService().getCommits({
-      since: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-    })
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const commits = getDatabaseService().getCommits({ since })
 
-    // Group by date
     const trend: Record<string, number> = {}
     const now = new Date()
     for (let i = days - 1; i >= 0; i--) {
@@ -32,5 +30,17 @@ export function registerStatsHandlers(): void {
       labels: Object.keys(trend),
       values: Object.values(trend)
     }
+  })
+
+  ipcMain.handle('stats:repo-contributions', async () => {
+    const commits = getDatabaseService().getCommits({})
+    const repoMap: Record<string, number> = {}
+    commits.forEach((c) => {
+      const name = (c as any).repo_name || 'Unknown'
+      repoMap[name] = (repoMap[name] || 0) + 1
+    })
+    return Object.entries(repoMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
   })
 }

@@ -40,6 +40,7 @@ interface ElectronAPI {
       type: string
       method: string
     }>
+    updateAccount: (id: number, account: { username: string; password?: string; token?: string; ssh_key?: string; type: string; method: string }) => Promise<void>
     removeAccount: (id: number) => Promise<void>
     getAccounts: () => Promise<Array<{
       id: number
@@ -54,8 +55,8 @@ interface ElectronAPI {
 
   // Report operations
   report: {
-    generateDaily: (date: string) => Promise<{ content: string; commits: any[] }>
-    generateWeekly: (date: string) => Promise<{ content: string; commits: any[] }>
+    generateDaily: (date: string, author?: string) => Promise<{ content: string; commits: any[] }>
+    generateWeekly: (date: string, author?: string) => Promise<{ content: string; commits: any[] }>
     getReport: (type: string, date: string) => Promise<any>
     saveReport: (report: { type: string; date: string; content: string }) => Promise<any>
   }
@@ -63,13 +64,21 @@ interface ElectronAPI {
   // AI operations
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') => Promise<string>
-    configure: (config: { provider: string; apiKey?: string; model?: string }) => Promise<void>
+    configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) => Promise<void>
+    getConfig: () => Promise<{ provider: string; apiKey?: string; model?: string; baseUrl?: string }>
   }
 
   // Stats operations
   stats: {
     getOverview: () => Promise<{ totalRepos: number; totalCommits: number; todayCommits: number }>
     getTrend: (days: number) => Promise<{ labels: string[]; values: number[] }>
+  }
+
+  // Settings operations
+  settings: {
+    clearAllData: () => Promise<{ cancelled?: boolean; success?: boolean; error?: string }>
+    clearCache: () => Promise<{ success: boolean; error?: string }>
+    getStorageInfo: () => Promise<{ database: number; cache: number; localStorage: number; total: number }>
   }
 }
 

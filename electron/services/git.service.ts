@@ -72,7 +72,14 @@ export class GitService {
       })
     } else {
       if (auth) {
-        await git.fetch({ fs, http, dir: localPath, url: remoteUrl, onAuth: makeOnAuth(auth, remoteUrl), ref: branch })
+        try {
+          await git.fetch({ fs, http, dir: localPath, url: remoteUrl, onAuth: makeOnAuth(auth, remoteUrl), ref: branch })
+        } catch (fetchError: any) {
+          if (fetchError.message?.includes('401') || fetchError.message?.includes('Unauthorized')) {
+            throw new Error('认证失败，请检查账号的 Token 或密码是否正确')
+          }
+          throw fetchError
+        }
       }
     }
     return this.readCommits(localPath, branch, since)
@@ -88,7 +95,6 @@ export class GitService {
   }
 
   private async readCommitsIso(localPath: string, branch: string, since: string): Promise<CommitInfo[]> {
-    const sinceDate = new Date(since)
     const commits: CommitInfo[] = []
 
     await git.log({
@@ -96,18 +102,21 @@ export class GitService {
       dir: localPath,
       ref: branch || 'HEAD',
       depth: 1000
-    }).then(log => {
-      for (const commit of log) {
-        const commitDate = new Date(commit.commit.committer.timestamp * 1000)
+    }).then(async (log) => {
+      for (const item of log) {
+        const commitDate = new Date(item.commit.committer.timestamp * 1000)
+        const sinceDate = new Date(since)
         if (commitDate >= sinceDate) {
+          const parentOid = item.commit.parent.length > 0 ? item.commit.parent[0] : null
+          const stats = await this.getCommitStatsIso(localPath, item.oid, parentOid, item.commit.tree)
           commits.push({
-            hash: commit.oid,
-            message: commit.commit.message,
-            author: commit.commit.author.name,
+            hash: item.oid,
+            message: item.commit.message,
+            author: item.commit.author.name,
             date: commitDate.toISOString(),
-            additions: 0,
-            deletions: 0,
-            files_changed: 0
+            additions: stats.additions,
+            deletions: stats.deletions,
+            files_changed: stats.files_changed
           })
         }
       }
@@ -116,26 +125,138 @@ export class GitService {
     return commits
   }
 
+  private async getCommitStatsIso(
+    localPath: string,
+    _oid: string,
+    parentOid: string | null,
+    treeOid: string
+  ): Promise<{ additions: number; deletions: number; files_changed: number }> {
+    try {
+      const collectBlobs = async (
+        treeOid: string,
+        prefix: string
+      ): Promise<Map<string, string>> => {
+        const blobs = new Map<string, string>()
+        const tree = await git.readTree({ fs, dir: localPath, oid: treeOid })
+
+        for (const entry of tree.tree) {
+          const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name
+          if (entry.type === 'blob') {
+            blobs.set(fullPath, entry.oid)
+          } else if (entry.type === 'tree') {
+            const subBlobs = await collectBlobs(entry.oid, fullPath)
+            for (const [key, val] of subBlobs) {
+              blobs.set(key, val)
+            }
+          }
+        }
+
+        return blobs
+      }
+
+      const countLines = async (blobOid: string): Promise<number> => {
+        const blob = await git.readBlob({ fs, dir: localPath, oid: blobOid })
+        const text = new TextDecoder().decode(blob.blob as Uint8Array)
+        if (!text) return 0
+        return text.split('\n').length
+      }
+
+      if (!parentOid) {
+        const currentBlobs = await collectBlobs(treeOid, '')
+        let additions = 0
+        for (const blobOid of currentBlobs.values()) {
+          additions += await countLines(blobOid)
+        }
+        return { additions, deletions: 0, files_changed: currentBlobs.size }
+      }
+
+      const parentCommit = await git.readCommit({ fs, dir: localPath, oid: parentOid })
+      const parentBlobs = await collectBlobs(parentCommit.commit.tree, '')
+      const currentBlobs = await collectBlobs(treeOid, '')
+
+      let additions = 0
+      let deletions = 0
+      let files_changed = 0
+
+      for (const [path, currentBlobOid] of currentBlobs) {
+        const parentBlobOid = parentBlobs.get(path)
+        if (!parentBlobOid || parentBlobOid !== currentBlobOid) {
+          additions += await countLines(currentBlobOid)
+          if (parentBlobOid) {
+            deletions += await countLines(parentBlobOid)
+          }
+          files_changed++
+        }
+      }
+
+      for (const [path, parentBlobOid] of parentBlobs) {
+        if (!currentBlobs.has(path)) {
+          deletions += await countLines(parentBlobOid)
+          files_changed++
+        }
+      }
+
+      return { additions, deletions, files_changed }
+    } catch (error) {
+      console.warn(`Failed to get stats for commit ${_oid}:`, error)
+      return { additions: 0, deletions: 0, files_changed: 0 }
+    }
+  }
+
   private readCommitsCli(localPath: string, branch: string, since: string): CommitInfo[] {
-    const sinceDate = new Date(since)
     const format = '%H|%s|%an|%aI'
     const cmd = `git -C "${localPath}" log ${branch || 'HEAD'} --since="${since}" --format="${format}" --no-merges`
     const output = execSync(cmd, { encoding: 'utf-8', timeout: 30000 })
 
     if (!output.trim()) return []
 
-    return output.trim().split('\n').map(line => {
+    const commits: CommitInfo[] = []
+    const lines = output.trim().split('\n')
+
+    for (const line of lines) {
       const [hash, message, author, date] = line.split('|')
-      return {
+      const stats = this.getCommitStatsCli(localPath, hash)
+      commits.push({
         hash,
         message,
         author,
         date,
-        additions: 0,
-        deletions: 0,
-        files_changed: 0
+        additions: stats.additions,
+        deletions: stats.deletions,
+        files_changed: stats.files_changed
+      })
+    }
+
+    return commits
+  }
+
+  private getCommitStatsCli(localPath: string, hash: string): { additions: number; deletions: number; files_changed: number } {
+    try {
+      const cmd = `git -C "${localPath}" show --numstat --format="" ${hash}`
+      const output = execSync(cmd, { encoding: 'utf-8', timeout: 10000 })
+
+      let additions = 0
+      let deletions = 0
+      let files_changed = 0
+
+      if (output.trim()) {
+        const lines = output.trim().split('\n')
+        files_changed = lines.length
+        for (const line of lines) {
+          const parts = line.split('\t')
+          if (parts.length >= 2) {
+            const add = parseInt(parts[0], 10)
+            const del = parseInt(parts[1], 10)
+            if (!isNaN(add)) additions += add
+            if (!isNaN(del)) deletions += del
+          }
+        }
       }
-    })
+
+      return { additions, deletions, files_changed }
+    } catch {
+      return { additions: 0, deletions: 0, files_changed: 0 }
+    }
   }
 
   async getStatus(localPath: string) {

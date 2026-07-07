@@ -1,17 +1,10 @@
 import { RouterProvider } from 'react-router-dom';
 import { ConfigProvider, theme } from 'antd';
-import { useState, useEffect } from 'react';
 import { router } from './router';
+import { useAppStore } from './stores/app';
 
 function App() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
-
-  useEffect(() => {
-    const savedMode = localStorage.getItem('theme');
-    if (savedMode === 'dark') {
-      setIsDarkMode(true);
-    }
-  }, []);
+  const isDarkMode = useAppStore((s) => s.theme === 'dark');
 
   return (
     <ConfigProvider

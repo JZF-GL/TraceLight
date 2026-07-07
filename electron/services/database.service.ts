@@ -66,7 +66,6 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
-        password TEXT,
         token TEXT,
         ssh_key TEXT,
         type TEXT DEFAULT 'github',
@@ -94,6 +93,24 @@ export class DatabaseService {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `)
+
+    // Migration: add missing columns to accounts table
+    const columns = this.db.prepare("PRAGMA table_info(accounts)").all() as { name: string }[]
+    const columnNames = columns.map(col => col.name)
+
+    const migrations = [
+      { name: 'password', type: 'TEXT' },
+      { name: 'token', type: 'TEXT' },
+      { name: 'ssh_key', type: 'TEXT' },
+      { name: 'type', type: "TEXT DEFAULT 'github'" },
+      { name: 'method', type: "TEXT DEFAULT 'token'" }
+    ]
+
+    for (const migration of migrations) {
+      if (!columnNames.includes(migration.name)) {
+        this.db.exec(`ALTER TABLE accounts ADD COLUMN ${migration.name} ${migration.type}`)
+      }
+    }
   }
 
   addRepo(repo: Omit<Repo, 'id' | 'created_at'>): Repo {
@@ -124,7 +141,7 @@ export class DatabaseService {
 
   saveCommits(repoId: number, commits: Omit<Commit, 'id' | 'repo_id'>[]): void {
     const stmt = this.db.prepare(
-      'INSERT OR IGNORE INTO commits (repo_id, hash, message, author, date, additions, deletions, files_changed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO commits (repo_id, hash, message, author, date, additions, deletions, files_changed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     )
     const insertMany = this.db.transaction((items: Omit<Commit, 'id' | 'repo_id'>[]) => {
       for (const item of items) {
@@ -134,7 +151,7 @@ export class DatabaseService {
     insertMany(commits)
   }
 
-  getCommits(filters: { repoId?: number; since?: string; until?: string }): (Commit & { repo_name: string })[] {
+  getCommits(filters: { repoId?: number; since?: string; until?: string; author?: string }): (Commit & { repo_name: string })[] {
     let query = 'SELECT c.*, r.name as repo_name FROM commits c JOIN repos r ON c.repo_id = r.id WHERE 1=1'
     const params: (string | number)[] = []
 
@@ -143,12 +160,16 @@ export class DatabaseService {
       params.push(filters.repoId)
     }
     if (filters.since) {
-      query += ' AND c.date >= ?'
+      query += ' AND substr(c.date, 1, 10) >= ?'
       params.push(filters.since)
     }
     if (filters.until) {
-      query += ' AND c.date <= ?'
+      query += ' AND substr(c.date, 1, 10) <= ?'
       params.push(filters.until)
+    }
+    if (filters.author) {
+      query += ' AND c.author = ?'
+      params.push(filters.author)
     }
 
     query += ' ORDER BY c.date DESC'
@@ -161,6 +182,12 @@ export class DatabaseService {
     )
     const result = stmt.run(account.username, account.password, account.token, account.ssh_key, account.type, account.method)
     return { id: result.lastInsertRowid as number, ...account }
+  }
+
+  updateAccount(id: number, account: Omit<Account, 'id'>): void {
+    this.db.prepare(
+      'UPDATE accounts SET username = ?, password = ?, token = ?, ssh_key = ?, type = ?, method = ? WHERE id = ?'
+    ).run(account.username, account.password, account.token, account.ssh_key, account.type, account.method, id)
   }
 
   removeAccount(id: number): void {
@@ -189,5 +216,12 @@ export class DatabaseService {
     const today = new Date().toISOString().split('T')[0]
     const todayCommits = (this.db.prepare('SELECT COUNT(*) as count FROM commits WHERE date LIKE ?').get(`${today}%`) as { count: number }).count
     return { totalRepos, totalCommits, todayCommits }
+  }
+
+  clearAllData(): void {
+    this.db.exec('DELETE FROM commits')
+    this.db.exec('DELETE FROM repos')
+    this.db.exec('DELETE FROM accounts')
+    this.db.exec('DELETE FROM reports')
   }
 }

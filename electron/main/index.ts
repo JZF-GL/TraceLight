@@ -6,12 +6,13 @@ import { registerAccountHandlers } from '../ipc/account'
 import { registerReportHandlers } from '../ipc/report'
 import { registerAIHandlers } from '../ipc/ai'
 import { registerStatsHandlers } from '../ipc/stats'
+import { registerSettingsHandlers } from '../ipc/settings'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 900,
+    minWidth: 1000,
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
@@ -45,6 +46,7 @@ function registerAllHandlers(): void {
   registerReportHandlers()
   registerAIHandlers()
   registerStatsHandlers()
+  registerSettingsHandlers()
 }
 
 app.whenReady().then(() => {

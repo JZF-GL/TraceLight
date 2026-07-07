@@ -1,4 +1,4 @@
-import { Layout, Menu, Switch, Typography, Space } from 'antd'
+import { Layout, Menu, Typography, Space } from 'antd'
 import {
   DashboardOutlined,
   DatabaseOutlined,
@@ -6,20 +6,18 @@ import {
   FileTextOutlined,
   CalendarOutlined,
   BarChartOutlined,
-  SettingOutlined,
-  SunOutlined,
-  MoonOutlined
+  SettingOutlined
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useAppStore } from '../../stores/app'
+import logo from '../../assets/logo.svg'
 
-const { Sider, Content, Header } = Layout
+const { Sider, Content } = Layout
 const { Title } = Typography
 
 interface MainLayoutProps {
   children: ReactNode
-  isDarkMode: boolean
-  setIsDarkMode: (value: boolean) => void
 }
 
 const menuItems = [
@@ -32,9 +30,10 @@ const menuItems = [
   { key: '/settings', icon: <SettingOutlined />, label: '设置' }
 ]
 
-function MainLayout({ children, isDarkMode, setIsDarkMode }: MainLayoutProps) {
+function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const isDarkMode = useAppStore((s) => s.theme === 'dark')
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -42,12 +41,19 @@ function MainLayout({ children, isDarkMode, setIsDarkMode }: MainLayoutProps) {
         theme={isDarkMode ? 'dark' : 'light'}
         width={200}
         style={{
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: 100,
           borderRight: '1px solid #f0f0f0',
-          background: isDarkMode ? '#141414' : '#fff'
+          background: isDarkMode ? '#141414' : '#fff',
+          overflowY: 'auto'
         }}
       >
         <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
           <Space>
+            <img src={logo} alt="TraceLight" style={{ width: 32, height: 32 }} />
             <Title level={4} style={{ margin: 0, color: '#4F46E5' }}>
               TraceLight
             </Title>
@@ -61,29 +67,7 @@ function MainLayout({ children, isDarkMode, setIsDarkMode }: MainLayoutProps) {
           style={{ borderRight: 0 }}
         />
       </Sider>
-      <Layout>
-        <Header
-          style={{
-            padding: '0 24px',
-            background: isDarkMode ? '#141414' : '#fff',
-            borderBottom: '1px solid #f0f0f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end'
-          }}
-        >
-          <Space>
-            <SunOutlined />
-            <Switch
-              checked={isDarkMode}
-              onChange={(checked) => {
-                setIsDarkMode(checked)
-                localStorage.setItem('theme', checked ? 'dark' : 'light')
-              }}
-            />
-            <MoonOutlined />
-          </Space>
-        </Header>
+      <Layout style={{ marginLeft: 200 }}>
         <Content
           style={{
             margin: '24px',

@@ -1,5 +1,4 @@
 import { createHashRouter, Outlet } from 'react-router-dom';
-import { useState, useEffect } from 'react';
 import MainLayout from './components/Layout/MainLayout';
 import Dashboard from './pages/Dashboard';
 import Repos from './pages/Repos';
@@ -10,17 +9,8 @@ import Stats from './pages/Stats';
 import Settings from './pages/Settings';
 
 function RootLayout() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
-
-  useEffect(() => {
-    const savedMode = localStorage.getItem('theme');
-    if (savedMode === 'dark') {
-      setIsDarkMode(true);
-    }
-  }, []);
-
   return (
-    <MainLayout isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode}>
+    <MainLayout>
       <Outlet />
     </MainLayout>
   );

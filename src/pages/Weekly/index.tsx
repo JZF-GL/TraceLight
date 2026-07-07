@@ -1,4 +1,4 @@
-import { Card, Button, DatePicker, Space, Typography, List, Tag, Spin, message, Input, Radio, Row, Col, Statistic } from 'antd'
+import { Card, Button, DatePicker, Space, Typography, List, Tag, Spin, message, Input, Radio, Row, Col, Statistic, Select, Tooltip } from 'antd'
 import {
   CopyOutlined,
   FilePdfOutlined,
@@ -8,12 +8,22 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined
 } from '@ant-design/icons'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import dayjs from 'dayjs'
+import { useAppStore } from '../../stores/app'
 
 const { Paragraph, Text } = Typography
 const { TextArea } = Input
 const { WeekPicker } = DatePicker
+
+const messageLineStyle: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  wordBreak: 'break-all'
+}
 
 interface CommitSummary {
   id: number
@@ -25,69 +35,74 @@ interface CommitSummary {
   deletions: number
 }
 
-declare global {
-  interface Window {
-    api: {
-      git: {
-        getCommits: (filters: { since?: string; until?: string }) => Promise<CommitSummary[]>
-      }
-      ai: {
-        summarize: (commits: string[], type: 'daily' | 'weekly') => Promise<string>
-      }
-      report: {
-        generateWeekly: (date: string) => Promise<{ content: string; commits: CommitSummary[] }>
-        saveReport: (report: { type: string; date: string; content: string }) => Promise<any>
-      }
-    }
-  }
+interface Account {
+  id: number
+  username: string
+  type: string
 }
 
 function Weekly() {
-  const [selectedWeek, setSelectedWeek] = useState<dayjs.Dayjs>(dayjs())
+  const isDarkMode = useAppStore((s) => s.theme === 'dark')
+  const { weeklyPage, setWeeklyPage } = useAppStore()
+  const { selectedWeek, selectedAuthor, reportContent, commits } = weeklyPage
   const [loading, setLoading] = useState(false)
-  const [_aiGenerated, setAiGenerated] = useState(false)
-  const [reportContent, setReportContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
-  const [commits, setCommits] = useState<CommitSummary[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+
+  useEffect(() => {
+    loadAccounts()
+  }, [])
 
   useEffect(() => {
     loadCommits()
-  }, [selectedWeek])
+  }, [selectedWeek, selectedAuthor])
 
-  const loadCommits = async () => {
+  const loadAccounts = async () => {
     try {
-      const date = selectedWeek.format('YYYY-MM-DD')
-      const result = await window.api.report.generateWeekly(date)
-      setCommits(result.commits || [])
-      if (result.content) {
-        setReportContent(result.content)
-        setAiGenerated(true)
+      const data = await window.api.account.getAccounts()
+      setAccounts(data || [])
+      if (!selectedAuthor && data && data.length > 0) {
+        setWeeklyPage({ selectedAuthor: data[0].username })
       }
     } catch (error) {
-      console.error('Failed to load commits:', error)
+      console.error('Failed to load accounts:', error)
     }
   }
 
-  const totalAdditions = commits.reduce((sum, c) => sum + (c.additions || 0), 0)
-  const totalDeletions = commits.reduce((sum, c) => sum + (c.deletions || 0), 0)
+  const loadCommits = async () => {
+    setLoading(true)
+    try {
+      const date = selectedWeek.format('YYYY-MM-DD')
+      const result = await window.api.report.generateWeekly(date, selectedAuthor)
+      setWeeklyPage({
+        commits: result?.commits || [],
+        reportContent: result?.content || reportContent
+      })
+    } catch (error) {
+      console.error('Failed to load commits:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const totalAdditions = commits.reduce((sum: number, c: any) => sum + (c.additions || 0), 0)
+  const totalDeletions = commits.reduce((sum: number, c: any) => sum + (c.deletions || 0), 0)
 
   const generateReport = async () => {
     setLoading(true)
     try {
-      const commitMessages = commits.map(c => c.message)
+      const commitMessages = commits.map((c: any) => c.message)
       const content = await window.api.ai.summarize(commitMessages, template === 'technical' ? 'weekly' : 'weekly')
-      setReportContent(content)
-      setAiGenerated(true)
-      
-      // Save report
+      setWeeklyPage({ reportContent: content })
+
       const date = selectedWeek.format('YYYY-MM-DD')
       await window.api.report.saveReport({
         type: 'weekly',
         date,
         content
       })
-      
+
       message.success('周报生成成功')
     } catch {
       message.error('生成失败')
@@ -105,15 +120,61 @@ function Weekly() {
     }
   }
 
+  const handleExportPDF = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      message.error('无法打开打印窗口')
+      return
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>周报 ${selectedWeek.format('YYYY-[W]ww')}</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; line-height: 1.6; }
+          h1 { color: #4F46E5; border-bottom: 2px solid #4F46E5; padding-bottom: 10px; }
+          h2 { color: #333; margin-top: 20px; }
+          pre { background: #f5f5f5; padding: 16px; border-radius: 8px; white-space: pre-wrap; font-family: inherit; }
+          .footer { margin-top: 40px; color: #999; font-size: 12px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <pre>${reportContent}</pre>
+        <div class="footer">由 TraceLight 生成</div>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(htmlContent)
+    printWindow.document.close()
+    printWindow.print()
+  }
+
   return (
     <div>
       <Card
         title="周报"
         extra={
           <Space>
+            <Select
+              placeholder="选择账号"
+              style={{ width: 160 }}
+              allowClear
+              value={selectedAuthor}
+              onChange={(value) => setWeeklyPage({ selectedAuthor: value })}
+            >
+              {accounts.map(account => (
+                <Select.Option key={account.id} value={account.username}>
+                  {account.username}
+                </Select.Option>
+              ))}
+            </Select>
             <WeekPicker
               value={selectedWeek}
-              onChange={(date) => date && setSelectedWeek(date)}
+              onChange={(date) => date && setWeeklyPage({ selectedWeek: date })}
             />
           </Space>
         }
@@ -124,6 +185,7 @@ function Weekly() {
               title="本周提交"
               value={commits.length}
               suffix="次"
+              valueStyle={{ whiteSpace: 'nowrap' }}
             />
           </Col>
           <Col span={6}>
@@ -131,7 +193,7 @@ function Weekly() {
               title="新增代码"
               value={totalAdditions}
               prefix={<ArrowUpOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              valueStyle={{ color: '#3f8600', whiteSpace: 'nowrap' }}
               suffix="行"
             />
           </Col>
@@ -140,15 +202,16 @@ function Weekly() {
               title="删除代码"
               value={totalDeletions}
               prefix={<ArrowDownOutlined />}
-              valueStyle={{ color: '#cf1322' }}
+              valueStyle={{ color: '#cf1322', whiteSpace: 'nowrap' }}
               suffix="行"
             />
           </Col>
           <Col span={6}>
             <Statistic
               title="涉及仓库"
-              value={new Set(commits.map(c => c.repo_name)).size}
+              value={new Set(commits.map((c: any) => c.repo_name)).size}
               suffix="个"
+              valueStyle={{ whiteSpace: 'nowrap' }}
             />
           </Col>
         </Row>
@@ -158,16 +221,18 @@ function Weekly() {
           <List
             size="small"
             dataSource={commits}
-            renderItem={(item) => (
-              <List.Item>
-                <Space>
-                  <Tag>{item.repo_name}</Tag>
-                  <Text code>{item.hash?.substring(0, 7)}</Text>
-                  <Text>{item.message}</Text>
-                  <Text type="secondary">{dayjs(item.date).format('MM-DD')}</Text>
-                  {item.additions !== undefined && <Tag color="green">+{item.additions}</Tag>}
-                  {item.deletions !== undefined && <Tag color="red">-{item.deletions}</Tag>}
-                </Space>
+            renderItem={(item: any) => (
+              <List.Item style={{ overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0 }}>
+                  <Tag style={{ flexShrink: 0 }}>{item.repo_name}</Tag>
+                  <Text code style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{item.hash?.substring(0, 7)}</Text>
+                  <Tooltip title={item.message} placement="topLeft">
+                    <div style={{ ...messageLineStyle, flex: 1, minWidth: 0 }}>{item.message}</div>
+                  </Tooltip>
+                  <Text type="secondary" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{dayjs(item.date).format('MM-DD')}</Text>
+                  {item.additions !== undefined && <Tag color="green" style={{ flexShrink: 0 }}>+{item.additions}</Tag>}
+                  {item.deletions !== undefined && <Tag color="red" style={{ flexShrink: 0 }}>-{item.deletions}</Tag>}
+                </div>
               </List.Item>
             )}
           />
@@ -191,11 +256,11 @@ function Weekly() {
             {isEditing ? (
               <TextArea
                 value={reportContent}
-                onChange={(e) => setReportContent(e.target.value)}
+                onChange={(e) => setWeeklyPage({ reportContent: e.target.value })}
                 rows={12}
               />
             ) : (
-              <Card size="small" style={{ background: '#f5f5f5' }}>
+              <Card size="small" style={{ background: isDarkMode ? '#2a2a2a' : '#f5f5f5' }}>
                 <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
                   {reportContent || '点击"重新生成"按钮生成周报'}
                 </Paragraph>
@@ -222,7 +287,7 @@ function Weekly() {
           <Button icon={<CopyOutlined />} onClick={handleCopy}>
             复制
           </Button>
-          <Button icon={<FilePdfOutlined />}>
+          <Button icon={<FilePdfOutlined />} onClick={handleExportPDF}>
             导出 PDF
           </Button>
         </Space>

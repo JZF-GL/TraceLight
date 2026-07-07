@@ -24,14 +24,16 @@ const api = {
   account: {
     addAccount: (account: { username: string; password?: string; token?: string; ssh_key?: string; type: string; method: string }) =>
       ipcRenderer.invoke('account:add-account', account),
+    updateAccount: (id: number, account: { username: string; password?: string; token?: string; ssh_key?: string; type: string; method: string }) =>
+      ipcRenderer.invoke('account:update-account', id, account),
     removeAccount: (id: number) => ipcRenderer.invoke('account:remove-account', id),
     getAccounts: () => ipcRenderer.invoke('account:get-accounts')
   },
 
   // Report operations
   report: {
-    generateDaily: (date: string) => ipcRenderer.invoke('report:generate-daily', date),
-    generateWeekly: (date: string) => ipcRenderer.invoke('report:generate-weekly', date),
+    generateDaily: (date: string, author?: string) => ipcRenderer.invoke('report:generate-daily', date, author),
+    generateWeekly: (date: string, author?: string) => ipcRenderer.invoke('report:generate-weekly', date, author),
     getReport: (type: string, date: string) => ipcRenderer.invoke('report:get-report', type, date),
     saveReport: (report: { type: string; date: string; content: string }) =>
       ipcRenderer.invoke('report:save-report', report)
@@ -41,14 +43,23 @@ const api = {
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') =>
       ipcRenderer.invoke('ai:summarize', commits, type),
-    configure: (config: { provider: string; apiKey?: string; model?: string }) =>
-      ipcRenderer.invoke('ai:configure', config)
+    configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) =>
+      ipcRenderer.invoke('ai:configure', config),
+    getConfig: () => ipcRenderer.invoke('ai:get-config')
   },
 
   // Stats operations
   stats: {
     getOverview: () => ipcRenderer.invoke('stats:overview'),
-    getTrend: (days: number) => ipcRenderer.invoke('stats:trend', days)
+    getTrend: (days: number) => ipcRenderer.invoke('stats:trend', days),
+    getRepoContributions: () => ipcRenderer.invoke('stats:repo-contributions')
+  },
+
+  // Settings operations
+  settings: {
+    clearAllData: () => ipcRenderer.invoke('settings:clear-all-data'),
+    clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+    getStorageInfo: () => ipcRenderer.invoke('settings:get-storage-info')
   }
 }
 
