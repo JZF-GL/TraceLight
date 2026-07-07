@@ -79,13 +79,11 @@ export function registerSettingsHandlers(): void {
         walkDir(cachePath)
       }
 
-      const localStorageSize = new Blob(Object.values(localStorage)).size
-
       return {
         database: dbSize,
         cache: cacheSize,
-        localStorage: localStorageSize,
-        total: dbSize + cacheSize + localStorageSize
+        localStorage: 0,
+        total: dbSize + cacheSize
       }
     } catch (error) {
       console.error('Failed to get storage info:', error)

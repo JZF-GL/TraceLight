@@ -34,8 +34,9 @@ const api = {
   report: {
     generateDaily: (date: string, author?: string) => ipcRenderer.invoke('report:generate-daily', date, author),
     generateWeekly: (date: string, author?: string) => ipcRenderer.invoke('report:generate-weekly', date, author),
-    getReport: (type: string, date: string) => ipcRenderer.invoke('report:get-report', type, date),
-    saveReport: (report: { type: string; date: string; content: string }) =>
+    getReport: (type: string, date: string, template?: string) => ipcRenderer.invoke('report:get-report', type, date, template),
+    getReports: (type: string, date: string) => ipcRenderer.invoke('report:get-reports', type, date),
+    saveReport: (report: { type: string; date: string; template: string; content: string }) =>
       ipcRenderer.invoke('report:save-report', report)
   },
 
@@ -43,6 +44,17 @@ const api = {
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') =>
       ipcRenderer.invoke('ai:summarize', commits, type),
+    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', onChunk: (chunk: string) => void, onEnd: () => void) => {
+      const chunkHandler = (_: unknown, chunk: string) => onChunk(chunk)
+      const endHandler = () => onEnd()
+      ipcRenderer.on('ai:stream-chunk', chunkHandler)
+      ipcRenderer.on('ai:stream-end', endHandler)
+      ipcRenderer.send('ai:summarize-stream', commits, type, template)
+      return () => {
+        ipcRenderer.removeListener('ai:stream-chunk', chunkHandler)
+        ipcRenderer.removeListener('ai:stream-end', endHandler)
+      }
+    },
     configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) =>
       ipcRenderer.invoke('ai:configure', config),
     getConfig: () => ipcRenderer.invoke('ai:get-config')

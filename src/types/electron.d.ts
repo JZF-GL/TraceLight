@@ -55,15 +55,17 @@ interface ElectronAPI {
 
   // Report operations
   report: {
-    generateDaily: (date: string, author?: string) => Promise<{ content: string; commits: any[] }>
-    generateWeekly: (date: string, author?: string) => Promise<{ content: string; commits: any[] }>
-    getReport: (type: string, date: string) => Promise<any>
-    saveReport: (report: { type: string; date: string; content: string }) => Promise<any>
+    generateDaily: (date: string, author?: string) => Promise<{ commits: any[]; summaries: Record<string, string> }>
+    generateWeekly: (date: string, author?: string) => Promise<{ commits: any[]; summaries: Record<string, string> }>
+    getReport: (type: string, date: string, template?: string) => Promise<any>
+    getReports: (type: string, date: string) => Promise<any[]>
+    saveReport: (report: { type: string; date: string; template: string; content: string }) => Promise<any>
   }
 
   // AI operations
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') => Promise<string>
+    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', onChunk: (chunk: string) => void, onEnd: () => void) => () => void
     configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) => Promise<void>
     getConfig: () => Promise<{ provider: string; apiKey?: string; model?: string; baseUrl?: string }>
   }

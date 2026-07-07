@@ -38,6 +38,7 @@ interface Report {
   id: number
   type: string
   date: string
+  template: string
   content: string
   ai_summary?: string
   created_at: string
@@ -110,6 +111,13 @@ export class DatabaseService {
       if (!columnNames.includes(migration.name)) {
         this.db.exec(`ALTER TABLE accounts ADD COLUMN ${migration.name} ${migration.type}`)
       }
+    }
+
+    // Migration: add template column to reports table
+    const reportColumns = this.db.prepare("PRAGMA table_info(reports)").all() as { name: string }[]
+    const reportColumnNames = reportColumns.map(col => col.name)
+    if (!reportColumnNames.includes('template')) {
+      this.db.exec("ALTER TABLE reports ADD COLUMN template TEXT DEFAULT 'technical'")
     }
   }
 
@@ -199,15 +207,33 @@ export class DatabaseService {
   }
 
   saveReport(report: Omit<Report, 'id' | 'created_at'>): Report {
+    const existing = this.db.prepare(
+      'SELECT id FROM reports WHERE type = ? AND date = ? AND template = ?'
+    ).get(report.type, report.date, report.template) as { id: number } | undefined
+
+    if (existing) {
+      this.db.prepare(
+        'UPDATE reports SET content = ?, ai_summary = ? WHERE id = ?'
+      ).run(report.content, report.ai_summary, existing.id)
+      return { id: existing.id, ...report, created_at: new Date().toISOString() }
+    }
+
     const stmt = this.db.prepare(
-      'INSERT INTO reports (type, date, content, ai_summary) VALUES (?, ?, ?, ?)'
+      'INSERT INTO reports (type, date, template, content, ai_summary) VALUES (?, ?, ?, ?, ?)'
     )
-    const result = stmt.run(report.type, report.date, report.content, report.ai_summary)
+    const result = stmt.run(report.type, report.date, report.template, report.content, report.ai_summary)
     return { id: result.lastInsertRowid as number, ...report, created_at: new Date().toISOString() }
   }
 
-  getReport(type: string, date: string): Report | undefined {
+  getReport(type: string, date: string, template?: string): Report | undefined {
+    if (template) {
+      return this.db.prepare('SELECT * FROM reports WHERE type = ? AND date = ? AND template = ?').get(type, date, template) as Report | undefined
+    }
     return this.db.prepare('SELECT * FROM reports WHERE type = ? AND date = ?').get(type, date) as Report | undefined
+  }
+
+  getReportsByDate(type: string, date: string): Report[] {
+    return this.db.prepare('SELECT * FROM reports WHERE type = ? AND date = ?').all(type, date) as Report[]
   }
 
   getStats(): { totalRepos: number; totalCommits: number; todayCommits: number } {

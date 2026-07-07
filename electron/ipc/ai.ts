@@ -1,6 +1,8 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow, app } from 'electron'
 import https from 'https'
 import http from 'http'
+import fs from 'fs'
+import path from 'path'
 
 interface AIConfig {
   provider: 'local' | 'openai' | 'ollama'
@@ -9,9 +11,20 @@ interface AIConfig {
   baseUrl?: string
 }
 
-let _aiConfig: AIConfig = {
-  provider: 'local',
-  model: 'gpt-3.5-turbo'
+let _configPath = ''
+let _aiConfig: AIConfig = { provider: 'local', model: 'gpt-3.5-turbo' }
+
+function loadAIConfig(): AIConfig {
+  try {
+    if (fs.existsSync(_configPath)) {
+      return JSON.parse(fs.readFileSync(_configPath, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return { provider: 'local', model: 'gpt-3.5-turbo' }
+}
+
+function saveAIConfig(config: AIConfig): void {
+  fs.writeFileSync(_configPath, JSON.stringify(config, null, 2), 'utf-8')
 }
 
 function formatTime(date: Date): string {
@@ -25,8 +38,12 @@ function formatTime(date: Date): string {
 }
 
 export function registerAIHandlers(): void {
+  _configPath = path.join(app.getPath('userData'), 'ai-config.json')
+  _aiConfig = loadAIConfig()
+
   ipcMain.handle('ai:configure', async (_, config: AIConfig) => {
     _aiConfig = config
+    saveAIConfig(config)
     return { success: true }
   })
 
@@ -68,13 +85,66 @@ export function registerAIHandlers(): void {
       }
     }
   })
+
+  ipcMain.on('ai:summarize-stream', async (event, commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed') => {
+    const summarized = commits
+      .filter(msg => msg && msg.trim())
+      .map(msg => {
+        const cleaned = msg
+          .replace(/^(feat|fix|refactor|docs|style|test|chore|perf|ci|build)(\(.+\))?:\s*/i, '')
+          .trim()
+        return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+      })
+
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const send = (channel: string, ...args: unknown[]) => {
+      win?.webContents.send(channel, ...args)
+    }
+
+    const fallback = () => {
+      const content = type === 'daily'
+        ? generateDailySummary(summarized)
+        : generateWeeklySummary(summarized)
+      send('ai:stream-chunk', content)
+      send('ai:stream-end')
+    }
+
+    if (_aiConfig.provider === 'local' || !_aiConfig.apiKey) {
+      fallback()
+      return
+    }
+
+    const commitList = summarized.map((c, i) => `${i + 1}. ${c}`).join('\n')
+    const prompts: Record<string, string> = {
+      technical_daily: `请根据以下Git提交记录，用中文整理出技术向的工作总结，只列出提交信息即可，不需要标题、时间等多余内容：\n\n${commitList}`,
+      technical_weekly: `请根据以下Git提交记录，用中文整理出技术向的工作总结，只列出提交信息即可，不需要标题、时间等多余内容：\n\n${commitList}`,
+      concise_daily: `请用简洁的中文生成一份日报总结，用要点形式列出今日主要工作内容，不要多余的描述：\n\n${commitList}`,
+      concise_weekly: `请用简洁的中文生成一份周报总结，用要点形式按功能开发、Bug修复、代码优化等分类列出本周工作，不要多余的描述：\n\n${commitList}`,
+      detailed_daily: `请用详细的中文生成一份日报总结，对每项工作进行适当展开描述，包括工作目的和完成情况：\n\n${commitList}`,
+      detailed_weekly: `请用详细的中文生成一份周报总结，按功能开发、Bug修复、代码优化等分类，对每项工作进行展开描述，包括工作背景、完成情况和成果：\n\n${commitList}`
+    }
+
+    const prompt = prompts[`${template}_${type}`]
+    const addFooter = template !== 'technical'
+
+    try {
+      await callAIAPIStreaming(prompt, send)
+      if (addFooter) {
+        send('ai:stream-chunk', `\n\n---\n*自动生成于 ${formatTime(new Date())}*`)
+      }
+      send('ai:stream-end')
+    } catch (error) {
+      console.error('AI streaming failed:', error)
+      fallback()
+    }
+  })
 }
 
 async function callAIAPI(prompt: string): Promise<string> {
   const baseUrl = _aiConfig.baseUrl || 'https://api.openai.com'
-  const url = new URL(`${baseUrl}/v1/chat/completions`)
+  const url = new URL(`${baseUrl}/chat/completions`)
 
-  const postData = JSON.stringify({
+  const params = {
     model: _aiConfig.model || 'gpt-3.5-turbo',
     messages: [
       { role: 'system', content: '你是一个专业的技术文档撰写助手，帮助开发者生成工作日报和周报。' },
@@ -82,7 +152,8 @@ async function callAIAPI(prompt: string): Promise<string> {
     ],
     temperature: 0.7,
     max_tokens: 1000
-  })
+  }
+  const postData = JSON.stringify(params)
 
   return new Promise((resolve, reject) => {
     const protocol = url.protocol === 'https:' ? https : http
@@ -110,6 +181,83 @@ async function callAIAPI(prompt: string): Promise<string> {
           reject(e)
         }
       })
+    })
+
+    req.on('error', reject)
+    req.write(postData)
+    req.end()
+  })
+}
+
+function callAIAPIStreaming(prompt: string, send: (channel: string, ...args: unknown[]) => void): Promise<void> {
+  const baseUrl = _aiConfig.baseUrl || 'https://api.openai.com'
+  const url = new URL(`${baseUrl}/chat/completions`)
+
+  const params = {
+    model: _aiConfig.model || 'gpt-3.5-turbo',
+    messages: [
+      { role: 'system', content: '你是一个专业的技术文档撰写助手，帮助开发者生成工作日报和周报。' },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.7,
+    max_tokens: 1000,
+    stream: true
+  }
+  const postData = JSON.stringify(params)
+
+  return new Promise((resolve, reject) => {
+    const protocol = url.protocol === 'https:' ? https : http
+    const req = protocol.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${_aiConfig.apiKey}`
+      }
+    }, (res) => {
+      let buffer = ''
+
+      res.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString()
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || !trimmed.startsWith('data: ')) continue
+          const data = trimmed.slice(6)
+          if (data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) {
+              send('ai:stream-chunk', delta)
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      })
+
+      res.on('end', () => {
+        if (buffer.trim()) {
+          const trimmed = buffer.trim()
+          if (trimmed.startsWith('data: ') && trimmed.slice(6) !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(trimmed.slice(6))
+              const delta = parsed.choices?.[0]?.delta?.content
+              if (delta) {
+                send('ai:stream-chunk', delta)
+              }
+            } catch { /* skip */ }
+          }
+        }
+        resolve()
+      })
+
+      res.on('error', reject)
     })
 
     req.on('error', reject)

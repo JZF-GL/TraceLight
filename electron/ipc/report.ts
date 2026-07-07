@@ -20,16 +20,15 @@ export function registerReportHandlers(): void {
       author
     })
 
-    const reportContent = `# 日报 ${date}
+    const savedReports = db.getReportsByDate('daily', date)
+    const summaries: Record<string, string> = {}
+    for (const r of savedReports) {
+      if (r.template && r.content) {
+        summaries[r.template] = r.content
+      }
+    }
 
-## 今日提交 (${commits.length} 次)
-
-${commits.map(c => `- ${c.message} (${c.hash.substring(0, 7)})`).join('\n')}
-
----
-*自动生成于 ${formatTime(new Date())}*`
-
-    return { content: reportContent, commits }
+    return { commits, summaries }
   })
 
   ipcMain.handle('report:generate-weekly', async (_, date, author) => {
@@ -52,28 +51,23 @@ ${commits.map(c => `- ${c.message} (${c.hash.substring(0, 7)})`).join('\n')}
       author
     })
 
-    const repoCommits = commits.reduce((acc, commit) => {
-      const repoName = (commit as any).repo_name || 'Unknown'
-      if (!acc[repoName]) acc[repoName] = []
-      acc[repoName].push(commit)
-      return acc
-    }, {} as Record<string, typeof commits>)
-
-    let reportContent = `# 周报 ${formatDate(startDate)} ~ ${formatDate(endDate)}\n\n`
-    reportContent += `## 本周提交汇总 (${commits.length} 次)\n\n`
-
-    for (const [repo, repoCommitList] of Object.entries(repoCommits)) {
-      reportContent += `### ${repo}\n`
-      reportContent += repoCommitList.map(c => `- ${c.message}`).join('\n') + '\n\n'
+    const savedReports = db.getReportsByDate('weekly', formatDate(startDate))
+    const summaries: Record<string, string> = {}
+    for (const r of savedReports) {
+      if (r.template && r.content) {
+        summaries[r.template] = r.content
+      }
     }
 
-    reportContent += `---\n*自动生成于 ${formatTime(new Date())}*`
-
-    return { content: reportContent, commits }
+    return { commits, summaries }
   })
 
-  ipcMain.handle('report:get-report', async (_, type, date) => {
-    return getDatabaseService().getReport(type, date)
+  ipcMain.handle('report:get-report', async (_, type, date, template) => {
+    return getDatabaseService().getReport(type, date, template)
+  })
+
+  ipcMain.handle('report:get-reports', async (_, type, date) => {
+    return getDatabaseService().getReportsByDate(type, date)
   })
 
   ipcMain.handle('report:save-report', async (_, report) => {

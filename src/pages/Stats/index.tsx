@@ -218,7 +218,7 @@ function Stats() {
 
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col span={8}>
-            <Card>
+            <Card styles={{ body: { height: 78, display: 'flex', alignItems: 'center' } }}>
               <Statistic
                 title="日均提交"
                 value={trend.values.length > 0 ? (totalCommits / trend.values.length).toFixed(1) : 0}
@@ -228,7 +228,7 @@ function Stats() {
             </Card>
           </Col>
           <Col span={8}>
-            <Card>
+            <Card styles={{ body: { height: 78, display: 'flex', alignItems: 'center' } }}>
               <Statistic
                 title="最活跃日"
                 value={trend.labels[trend.values.indexOf(Math.max(...trend.values))] || '-'}
@@ -237,12 +237,12 @@ function Stats() {
             </Card>
           </Col>
           <Col span={8}>
-            <Card>
+            <Card styles={{ body: { height: 78, display: 'flex', alignItems: 'center' } }}>
               <Statistic
                 title="主力仓库"
                 value={topRepo ? topRepo.name : '-'}
                 prefix={<DatabaseOutlined />}
-                valueStyle={topRepo ? { fontSize: topRepo.name.length > 8 ? 16 : 20 } : undefined}
+                valueStyle={{ fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               />
             </Card>
           </Col>

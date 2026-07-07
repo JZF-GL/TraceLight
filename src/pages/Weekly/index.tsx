@@ -8,7 +8,7 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined
 } from '@ant-design/icons'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { useAppStore } from '../../stores/app'
 
@@ -44,19 +44,28 @@ interface Account {
 function Weekly() {
   const isDarkMode = useAppStore((s) => s.theme === 'dark')
   const { weeklyPage, setWeeklyPage } = useAppStore()
-  const { selectedWeek, selectedAuthor, reportContent, commits } = weeklyPage
+  const { selectedWeek, selectedAuthor, summaries, currentContent, commits } = weeklyPage
   const [loading, setLoading] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
   const [accounts, setAccounts] = useState<Account[]>([])
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     loadAccounts()
   }, [])
 
   useEffect(() => {
+    return () => { cleanupRef.current?.() }
+  }, [])
+
+  useEffect(() => {
     loadCommits()
   }, [selectedWeek, selectedAuthor])
+
+  useEffect(() => {
+    setWeeklyPage({ currentContent: summaries[template] || '' })
+  }, [template])
 
   const loadAccounts = async () => {
     try {
@@ -70,14 +79,18 @@ function Weekly() {
     }
   }
 
+  const getWeekStart = (date: dayjs.Dayjs) => date.startOf('week')
+
   const loadCommits = async () => {
     setLoading(true)
     try {
-      const date = selectedWeek.format('YYYY-MM-DD')
+      const date = getWeekStart(selectedWeek).format('YYYY-MM-DD')
       const result = await window.api.report.generateWeekly(date, selectedAuthor)
+      const newSummaries = result?.summaries || {}
       setWeeklyPage({
         commits: result?.commits || [],
-        reportContent: result?.content || reportContent
+        summaries: newSummaries,
+        currentContent: newSummaries[template] || ''
       })
     } catch (error) {
       console.error('Failed to load commits:', error)
@@ -93,27 +106,36 @@ function Weekly() {
     setLoading(true)
     try {
       const commitMessages = commits.map((c: any) => c.message)
-      const content = await window.api.ai.summarize(commitMessages, template === 'technical' ? 'weekly' : 'weekly')
-      setWeeklyPage({ reportContent: content })
 
-      const date = selectedWeek.format('YYYY-MM-DD')
-      await window.api.report.saveReport({
-        type: 'weekly',
-        date,
-        content
-      })
-
-      message.success('周报生成成功')
+      cleanupRef.current?.()
+      setWeeklyPage({ currentContent: '' })
+      let fullContent = ''
+      cleanupRef.current = window.api.ai.summarizeStream(
+        commitMessages,
+        'weekly',
+        template,
+        (chunk) => {
+          fullContent += chunk
+          setWeeklyPage({ currentContent: fullContent })
+        },
+        async () => {
+          const newSummaries = { ...summaries, [template]: fullContent }
+          setWeeklyPage({ summaries: newSummaries, currentContent: fullContent })
+          const date = getWeekStart(selectedWeek).format('YYYY-MM-DD')
+          await window.api.report.saveReport({ type: 'weekly', date, template, content: fullContent })
+          message.success('周报生成成功')
+          setLoading(false)
+        }
+      )
     } catch {
       message.error('生成失败')
-    } finally {
       setLoading(false)
     }
   }
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(reportContent)
+      await navigator.clipboard.writeText(currentContent)
       message.success('已复制到剪贴板')
     } catch {
       message.error('复制失败')
@@ -142,7 +164,7 @@ function Weekly() {
         </style>
       </head>
       <body>
-        <pre>${reportContent}</pre>
+        <pre>${currentContent}</pre>
         <div class="footer">由 TraceLight 生成</div>
       </body>
       </html>
@@ -245,6 +267,7 @@ function Weekly() {
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
               size="small"
+              disabled={loading}
             >
               <Radio.Button value="technical">技术向</Radio.Button>
               <Radio.Button value="concise">简洁向</Radio.Button>
@@ -255,14 +278,14 @@ function Weekly() {
           <Spin spinning={loading}>
             {isEditing ? (
               <TextArea
-                value={reportContent}
-                onChange={(e) => setWeeklyPage({ reportContent: e.target.value })}
+                value={currentContent}
+                onChange={(e) => setWeeklyPage({ currentContent: e.target.value })}
                 rows={12}
               />
             ) : (
               <Card size="small" style={{ background: isDarkMode ? '#2a2a2a' : '#f5f5f5' }}>
                 <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                  {reportContent || '点击"重新生成"按钮生成周报'}
+                  {currentContent || '点击"重新生成"按钮生成周报'}
                 </Paragraph>
               </Card>
             )}

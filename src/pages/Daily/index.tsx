@@ -6,7 +6,7 @@ import {
   EditOutlined,
   CheckOutlined
 } from '@ant-design/icons'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import { useAppStore } from '../../stores/app'
 
@@ -39,19 +39,28 @@ interface Account {
 function Daily() {
   const isDarkMode = useAppStore((s) => s.theme === 'dark')
   const { dailyPage, setDailyPage } = useAppStore()
-  const { selectedDate, selectedAuthor, reportContent, commits } = dailyPage
+  const { selectedDate, selectedAuthor, summaries, currentContent, commits } = dailyPage
   const [loading, setLoading] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
   const [accounts, setAccounts] = useState<Account[]>([])
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     loadAccounts()
   }, [])
 
   useEffect(() => {
+    return () => { cleanupRef.current?.() }
+  }, [])
+
+  useEffect(() => {
     loadCommits()
   }, [selectedDate, selectedAuthor])
+
+  useEffect(() => {
+    setDailyPage({ currentContent: summaries[template] || '' })
+  }, [template])
 
   const loadAccounts = async () => {
     try {
@@ -70,9 +79,11 @@ function Daily() {
     try {
       const date = selectedDate.format('YYYY-MM-DD')
       const result = await window.api.report.generateDaily(date, selectedAuthor)
+      const newSummaries = result?.summaries || {}
       setDailyPage({
         commits: result?.commits || [],
-        reportContent: result?.content || reportContent
+        summaries: newSummaries,
+        currentContent: newSummaries[template] || ''
       })
     } catch (error) {
       console.error('Failed to load commits:', error)
@@ -86,27 +97,36 @@ function Daily() {
     setLoading(true)
     try {
       const commitMessages = commits.map((c: any) => c.message)
-      const content = await window.api.ai.summarize(commitMessages, template === 'technical' ? 'daily' : 'daily')
-      setDailyPage({ reportContent: content })
 
-      const date = selectedDate.format('YYYY-MM-DD')
-      await window.api.report.saveReport({
-        type: 'daily',
-        date,
-        content
-      })
-
-      message.success('日报生成成功')
+      cleanupRef.current?.()
+      setDailyPage({ currentContent: '' })
+      let fullContent = ''
+      cleanupRef.current = window.api.ai.summarizeStream(
+        commitMessages,
+        'daily',
+        template,
+        (chunk) => {
+          fullContent += chunk
+          setDailyPage({ currentContent: fullContent })
+        },
+        async () => {
+          const newSummaries = { ...summaries, [template]: fullContent }
+          setDailyPage({ summaries: newSummaries, currentContent: fullContent })
+          const date = selectedDate.format('YYYY-MM-DD')
+          await window.api.report.saveReport({ type: 'daily', date, template, content: fullContent })
+          message.success('日报生成成功')
+          setLoading(false)
+        }
+      )
     } catch {
       message.error('生成失败')
-    } finally {
       setLoading(false)
     }
   }
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(reportContent)
+      await navigator.clipboard.writeText(currentContent)
       message.success('已复制到剪贴板')
     } catch {
       message.error('复制失败')
@@ -135,7 +155,7 @@ function Daily() {
         </style>
       </head>
       <body>
-        <pre>${reportContent}</pre>
+        <pre>${currentContent}</pre>
         <div class="footer">由 TraceLight 生成</div>
       </body>
       </html>
@@ -205,6 +225,7 @@ function Daily() {
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
               size="small"
+              disabled={loading}
             >
               <Radio.Button value="technical">技术向</Radio.Button>
               <Radio.Button value="concise">简洁向</Radio.Button>
@@ -215,14 +236,14 @@ function Daily() {
           <Spin spinning={loading}>
             {isEditing ? (
               <TextArea
-                value={reportContent}
-                onChange={(e) => setDailyPage({ reportContent: e.target.value })}
+                value={currentContent}
+                onChange={(e) => setDailyPage({ currentContent: e.target.value })}
                 rows={6}
               />
             ) : (
               <Card size="small" style={{ background: isDarkMode ? '#2a2a2a' : '#f5f5f5' }}>
                 <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                  {reportContent || '点击"重新生成"按钮生成日报'}
+                  {currentContent || '点击"重新生成"按钮生成日报'}
                 </Paragraph>
               </Card>
             )}
