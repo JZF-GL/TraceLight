@@ -494,7 +494,7 @@ function Settings() {
       children: (
         <Card title="关于 TraceLight">
           <p>TraceLight 是一款 Git 提交日报/周报生成器，帮助开发者快速生成工作汇报。</p>
-          <p>版本: 0.1.0</p>
+          <p>版本: 1.0.0</p>
           <p>技术栈: Electron + React + TypeScript + Ant Design</p>
           <Divider />
           <p><strong>开发者：</strong>江卓峰</p>

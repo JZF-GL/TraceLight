@@ -1,6 +1,6 @@
 {
   "name": "tracelight",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Git commit daily/weekly report generator",
   "main": "./out/main/index.js",
   "private": true,

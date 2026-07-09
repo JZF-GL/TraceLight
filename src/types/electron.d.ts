@@ -65,7 +65,8 @@ interface ElectronAPI {
   // AI operations
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') => Promise<string>
-    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', onChunk: (chunk: string) => void, onEnd: () => void) => () => void
+    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', date: string, author: string, onChunk: (chunk: string) => void, onEnd: () => void) => () => void
+    abortStream: () => void
     configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) => Promise<void>
     getConfig: () => Promise<{ provider: string; apiKey?: string; model?: string; baseUrl?: string }>
   }

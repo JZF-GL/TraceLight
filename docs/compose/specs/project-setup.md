@@ -11,7 +11,7 @@
 
 Initialize the project with pnpm as the package manager. Create `package.json` with:
 - `name`: "tracelight"
-- `version`: "0.1.0"
+- `version`: "1.0.0"
 - `description`: "Git Commit 日报/周报生成器"
 - `main`: "dist-electron/main.js"
 - `scripts`: `dev`, `build`, `preview`, `lint`, `format`

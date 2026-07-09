@@ -4,7 +4,8 @@ import {
   FilePdfOutlined,
   ReloadOutlined,
   EditOutlined,
-  CheckOutlined
+  CheckOutlined,
+  StopOutlined
 } from '@ant-design/icons'
 import { useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
@@ -39,19 +40,21 @@ interface Account {
 function Daily() {
   const isDarkMode = useAppStore((s) => s.theme === 'dark')
   const { dailyPage, setDailyPage } = useAppStore()
-  const { selectedDate, selectedAuthor, summaries, currentContent, commits } = dailyPage
-  const [loading, setLoading] = useState(false)
+  const { selectedDate, selectedAuthor, template, summaries, currentContent, commits, loading, generating } = dailyPage
   const [isEditing, setIsEditing] = useState(false)
-  const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
   const [accounts, setAccounts] = useState<Account[]>([])
   const cleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
+    setDailyPage({ generating: false })
     loadAccounts()
   }, [])
 
   useEffect(() => {
-    return () => { cleanupRef.current?.() }
+    return () => {
+      cleanupRef.current?.()
+      cleanupRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -59,7 +62,9 @@ function Daily() {
   }, [selectedDate, selectedAuthor])
 
   useEffect(() => {
-    setDailyPage({ currentContent: summaries[template] || '' })
+    if (summaries && summaries[template] !== undefined) {
+      setDailyPage({ currentContent: summaries[template] })
+    }
   }, [template])
 
   const loadAccounts = async () => {
@@ -75,7 +80,8 @@ function Daily() {
   }
 
   const loadCommits = async () => {
-    setLoading(true)
+    if (generating) return
+    setDailyPage({ loading: true })
     try {
       const date = selectedDate.format('YYYY-MM-DD')
       const result = await window.api.report.generateDaily(date, selectedAuthor)
@@ -89,14 +95,20 @@ function Daily() {
       console.error('Failed to load commits:', error)
       setDailyPage({ commits: [] })
     } finally {
-      setLoading(false)
+      setDailyPage({ loading: false })
     }
   }
 
   const generateReport = async () => {
-    setLoading(true)
+    if (commits.length === 0) {
+      message.warning('当前日期没有提交记录，无法生成日报')
+      return
+    }
+
+    setDailyPage({ generating: true, loading: true })
     try {
       const commitMessages = commits.map((c: any) => c.message)
+      const date = selectedDate.format('YYYY-MM-DD')
 
       cleanupRef.current?.()
       setDailyPage({ currentContent: '' })
@@ -105,23 +117,30 @@ function Daily() {
         commitMessages,
         'daily',
         template,
+        date,
+        selectedAuthor || '',
         (chunk) => {
           fullContent += chunk
           setDailyPage({ currentContent: fullContent })
         },
         async () => {
           const newSummaries = { ...summaries, [template]: fullContent }
-          setDailyPage({ summaries: newSummaries, currentContent: fullContent })
-          const date = selectedDate.format('YYYY-MM-DD')
-          await window.api.report.saveReport({ type: 'daily', date, template, content: fullContent })
+          setDailyPage({ summaries: newSummaries, currentContent: fullContent, generating: false, loading: false })
           message.success('日报生成成功')
-          setLoading(false)
         }
       )
     } catch {
       message.error('生成失败')
-      setLoading(false)
+      setDailyPage({ generating: false, loading: false })
     }
+  }
+
+  const abortGenerate = () => {
+    window.api.ai.abortStream()
+    cleanupRef.current?.()
+    cleanupRef.current = null
+    setDailyPage({ generating: false, loading: false })
+    message.info('已中止生成')
   }
 
   const handleCopy = async () => {
@@ -178,6 +197,7 @@ function Daily() {
               allowClear
               value={selectedAuthor}
               onChange={(value) => setDailyPage({ selectedAuthor: value })}
+              disabled={generating}
             >
               {accounts.map(account => (
                 <Select.Option key={account.id} value={account.username}>
@@ -188,11 +208,12 @@ function Daily() {
             <DatePicker
               value={selectedDate}
               onChange={(date) => date && setDailyPage({ selectedDate: date })}
+              disabled={generating}
             />
-            <Button onClick={() => setDailyPage({ selectedDate: selectedDate.subtract(1, 'day') })}>
+            <Button onClick={() => setDailyPage({ selectedDate: selectedDate.subtract(1, 'day') })} disabled={generating}>
               ← 前一天
             </Button>
-            <Button onClick={() => setDailyPage({ selectedDate: selectedDate.add(1, 'day') })}>
+            <Button onClick={() => setDailyPage({ selectedDate: selectedDate.add(1, 'day') })} disabled={generating}>
               后一天 →
             </Button>
           </Space>
@@ -223,7 +244,7 @@ function Daily() {
             <Text strong>AI 生成总结</Text>
             <Radio.Group
               value={template}
-              onChange={(e) => setTemplate(e.target.value)}
+              onChange={(e) => setDailyPage({ template: e.target.value })}
               size="small"
               disabled={loading}
             >
@@ -233,7 +254,7 @@ function Daily() {
             </Radio.Group>
           </Space>
 
-          <Spin spinning={loading}>
+          <Spin spinning={generating}>
             {isEditing ? (
               <TextArea
                 value={currentContent}
@@ -251,14 +272,24 @@ function Daily() {
         </div>
 
         <Space>
-          <Button
-            type="primary"
-            icon={<ReloadOutlined />}
-            onClick={generateReport}
-            loading={loading}
-          >
-            重新生成
-          </Button>
+          {generating ? (
+            <Button
+              danger
+              icon={<StopOutlined />}
+              onClick={abortGenerate}
+            >
+              中止生成
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={generateReport}
+              loading={loading}
+            >
+              重新生成
+            </Button>
+          )}
           <Button
             icon={isEditing ? <CheckOutlined /> : <EditOutlined />}
             onClick={() => setIsEditing(!isEditing)}

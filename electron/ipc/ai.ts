@@ -3,6 +3,7 @@ import https from 'https'
 import http from 'http'
 import fs from 'fs'
 import path from 'path'
+import { getDatabaseService } from '../services/db'
 
 interface AIConfig {
   provider: 'local' | 'openai' | 'ollama'
@@ -13,6 +14,7 @@ interface AIConfig {
 
 let _configPath = ''
 let _aiConfig: AIConfig = { provider: 'local', model: 'gpt-3.5-turbo' }
+let _currentStreamRequest: { abort: () => void } | null = null
 
 function loadAIConfig(): AIConfig {
   try {
@@ -51,6 +53,13 @@ export function registerAIHandlers(): void {
     return _aiConfig
   })
 
+  ipcMain.on('ai:abort-stream', () => {
+    if (_currentStreamRequest) {
+      _currentStreamRequest.abort()
+      _currentStreamRequest = null
+    }
+  })
+
   ipcMain.handle('ai:summarize', async (_, commits: string[], type: 'daily' | 'weekly') => {
     const summarized = commits
       .filter(msg => msg && msg.trim())
@@ -86,7 +95,7 @@ export function registerAIHandlers(): void {
     }
   })
 
-  ipcMain.on('ai:summarize-stream', async (event, commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed') => {
+  ipcMain.on('ai:summarize-stream', async (event, commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', date: string, author: string) => {
     const summarized = commits
       .filter(msg => msg && msg.trim())
       .map(msg => {
@@ -101,12 +110,16 @@ export function registerAIHandlers(): void {
       win?.webContents.send(channel, ...args)
     }
 
+    let fullContent = ''
+
     const fallback = () => {
       const content = type === 'daily'
         ? generateDailySummary(summarized)
         : generateWeeklySummary(summarized)
+      fullContent = content
       send('ai:stream-chunk', content)
       send('ai:stream-end')
+      saveReportToDb(type, date, template, author, fullContent)
     }
 
     if (_aiConfig.provider === 'local' || !_aiConfig.apiKey) {
@@ -128,14 +141,31 @@ export function registerAIHandlers(): void {
     const addFooter = template !== 'technical'
 
     try {
-      await callAIAPIStreaming(prompt, send)
-      if (addFooter) {
-        send('ai:stream-chunk', `\n\n---\n*自动生成于 ${formatTime(new Date())}*`)
+      const onChunk = (chunk: string) => {
+        fullContent += chunk
+        send('ai:stream-chunk', chunk)
       }
-      send('ai:stream-end')
+      const onEnd = () => {
+        _currentStreamRequest = null
+        if (addFooter) {
+          const footer = `\n\n---\n*自动生成于 ${formatTime(new Date())}*`
+          fullContent += footer
+          send('ai:stream-chunk', footer)
+        }
+        send('ai:stream-end')
+        saveReportToDb(type, date, template, author, fullContent)
+      }
+      const onAbort = () => {
+        _currentStreamRequest = null
+        send('ai:stream-abort')
+      }
+      await callAIAPIStreaming(prompt, onChunk, onEnd, onAbort)
     } catch (error) {
+      _currentStreamRequest = null
       console.error('AI streaming failed:', error)
-      fallback()
+      if ((error as Error).message !== 'Stream aborted') {
+        fallback()
+      }
     }
   })
 }
@@ -189,7 +219,21 @@ async function callAIAPI(prompt: string): Promise<string> {
   })
 }
 
-function callAIAPIStreaming(prompt: string, send: (channel: string, ...args: unknown[]) => void): Promise<void> {
+function saveReportToDb(type: 'daily' | 'weekly', date: string, template: string, author: string, content: string): void {
+  try {
+    const db = getDatabaseService()
+    db.saveReport({ type, date, template, author, content })
+  } catch (error) {
+    console.error('Failed to save report to database:', error)
+  }
+}
+
+function callAIAPIStreaming(
+  prompt: string,
+  onChunk: (chunk: string) => void,
+  onEnd: () => void,
+  onAbort?: () => void
+): Promise<void> {
   const baseUrl = _aiConfig.baseUrl || 'https://api.openai.com'
   const url = new URL(`${baseUrl}/chat/completions`)
 
@@ -233,7 +277,7 @@ function callAIAPIStreaming(prompt: string, send: (channel: string, ...args: unk
             const parsed = JSON.parse(data)
             const delta = parsed.choices?.[0]?.delta?.content
             if (delta) {
-              send('ai:stream-chunk', delta)
+              onChunk(delta)
             }
           } catch {
             // skip malformed lines
@@ -249,11 +293,12 @@ function callAIAPIStreaming(prompt: string, send: (channel: string, ...args: unk
               const parsed = JSON.parse(trimmed.slice(6))
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) {
-                send('ai:stream-chunk', delta)
+                onChunk(delta)
               }
             } catch { /* skip */ }
           }
         }
+        onEnd()
         resolve()
       })
 
@@ -263,6 +308,16 @@ function callAIAPIStreaming(prompt: string, send: (channel: string, ...args: unk
     req.on('error', reject)
     req.write(postData)
     req.end()
+
+    // 保存 request 对象用于中止
+    _currentStreamRequest = {
+      abort: () => {
+        req.destroy()
+        _currentStreamRequest = null
+        onAbort?.()
+        reject(new Error('Stream aborted'))
+      }
+    }
   })
 }
 

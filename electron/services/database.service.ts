@@ -39,6 +39,7 @@ interface Report {
   type: string
   date: string
   template: string
+  author: string
   content: string
   ai_summary?: string
   created_at: string
@@ -119,6 +120,16 @@ export class DatabaseService {
     if (!reportColumnNames.includes('template')) {
       this.db.exec("ALTER TABLE reports ADD COLUMN template TEXT DEFAULT 'technical'")
     }
+    if (!reportColumnNames.includes('author')) {
+      this.db.exec("ALTER TABLE reports ADD COLUMN author TEXT DEFAULT ''")
+    }
+
+    // 清理重复报告：每个 (type, date, template, author) 只保留最新的一条
+    this.db.exec(`
+      DELETE FROM reports WHERE id NOT IN (
+        SELECT MAX(id) FROM reports GROUP BY type, date, template, author
+      )
+    `)
   }
 
   addRepo(repo: Omit<Repo, 'id' | 'created_at'>): Repo {
@@ -208,8 +219,8 @@ export class DatabaseService {
 
   saveReport(report: Omit<Report, 'id' | 'created_at'>): Report {
     const existing = this.db.prepare(
-      'SELECT id FROM reports WHERE type = ? AND date = ? AND template = ?'
-    ).get(report.type, report.date, report.template) as { id: number } | undefined
+      'SELECT id FROM reports WHERE type = ? AND date = ? AND template = ? AND author = ?'
+    ).get(report.type, report.date, report.template, report.author || '') as { id: number } | undefined
 
     if (existing) {
       this.db.prepare(
@@ -219,9 +230,9 @@ export class DatabaseService {
     }
 
     const stmt = this.db.prepare(
-      'INSERT INTO reports (type, date, template, content, ai_summary) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO reports (type, date, template, author, content, ai_summary) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    const result = stmt.run(report.type, report.date, report.template, report.content, report.ai_summary)
+    const result = stmt.run(report.type, report.date, report.template, report.author || '', report.content, report.ai_summary)
     return { id: result.lastInsertRowid as number, ...report, created_at: new Date().toISOString() }
   }
 
@@ -232,8 +243,15 @@ export class DatabaseService {
     return this.db.prepare('SELECT * FROM reports WHERE type = ? AND date = ?').get(type, date) as Report | undefined
   }
 
-  getReportsByDate(type: string, date: string): Report[] {
-    return this.db.prepare('SELECT * FROM reports WHERE type = ? AND date = ?').all(type, date) as Report[]
+  getReportsByDate(type: string, date: string, author?: string): Report[] {
+    if (author) {
+      return this.db.prepare(
+        'SELECT * FROM reports WHERE type = ? AND date = ? AND author = ? ORDER BY created_at DESC'
+      ).all(type, date, author) as Report[]
+    }
+    return this.db.prepare(
+      'SELECT * FROM reports WHERE type = ? AND date = ? ORDER BY created_at DESC'
+    ).all(type, date) as Report[]
   }
 
   getStats(): { totalRepos: number; totalCommits: number; todayCommits: number } {

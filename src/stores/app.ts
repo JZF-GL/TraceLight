@@ -50,17 +50,23 @@ interface CommitsPageState {
 interface DailyPageState {
   selectedDate: dayjs.Dayjs
   selectedAuthor: string | undefined
+  template: 'technical' | 'concise' | 'detailed'
   summaries: Record<string, string>
   currentContent: string
   commits: any[]
+  loading: boolean
+  generating: boolean
 }
 
 interface WeeklyPageState {
   selectedWeek: dayjs.Dayjs
   selectedAuthor: string | undefined
+  template: 'technical' | 'concise' | 'detailed'
   summaries: Record<string, string>
   currentContent: string
   commits: any[]
+  loading: boolean
+  generating: boolean
 }
 
 interface AppState {
@@ -122,16 +128,22 @@ export const useAppStore = create<AppState>((set) => {
     dailyPage: {
       selectedDate: dayjs(),
       selectedAuthor: undefined,
+      template: 'technical',
       summaries: {},
       currentContent: '',
-      commits: []
+      commits: [],
+      loading: false,
+      generating: false
     },
     weeklyPage: {
       selectedWeek: dayjs(),
       selectedAuthor: undefined,
+      template: 'technical',
       summaries: {},
       currentContent: '',
-      commits: []
+      commits: [],
+      loading: false,
+      generating: false
     },
 
     setTheme: (theme) => {

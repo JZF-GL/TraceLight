@@ -20,10 +20,10 @@ export function registerReportHandlers(): void {
       author
     })
 
-    const savedReports = db.getReportsByDate('daily', date)
+    const savedReports = db.getReportsByDate('daily', date, author)
     const summaries: Record<string, string> = {}
     for (const r of savedReports) {
-      if (r.template && r.content) {
+      if (r.template && r.content && !summaries[r.template]) {
         summaries[r.template] = r.content
       }
     }
@@ -51,10 +51,10 @@ export function registerReportHandlers(): void {
       author
     })
 
-    const savedReports = db.getReportsByDate('weekly', formatDate(startDate))
+    const savedReports = db.getReportsByDate('weekly', formatDate(startDate), author)
     const summaries: Record<string, string> = {}
     for (const r of savedReports) {
-      if (r.template && r.content) {
+      if (r.template && r.content && !summaries[r.template]) {
         summaries[r.template] = r.content
       }
     }

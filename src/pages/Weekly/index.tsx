@@ -6,7 +6,8 @@ import {
   EditOutlined,
   CheckOutlined,
   ArrowUpOutlined,
-  ArrowDownOutlined
+  ArrowDownOutlined,
+  StopOutlined
 } from '@ant-design/icons'
 import { useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
@@ -44,19 +45,21 @@ interface Account {
 function Weekly() {
   const isDarkMode = useAppStore((s) => s.theme === 'dark')
   const { weeklyPage, setWeeklyPage } = useAppStore()
-  const { selectedWeek, selectedAuthor, summaries, currentContent, commits } = weeklyPage
-  const [loading, setLoading] = useState(false)
+  const { selectedWeek, selectedAuthor, template, summaries, currentContent, commits, loading, generating } = weeklyPage
   const [isEditing, setIsEditing] = useState(false)
-  const [template, setTemplate] = useState<'technical' | 'concise' | 'detailed'>('technical')
   const [accounts, setAccounts] = useState<Account[]>([])
   const cleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
+    setWeeklyPage({ generating: false })
     loadAccounts()
   }, [])
 
   useEffect(() => {
-    return () => { cleanupRef.current?.() }
+    return () => {
+      cleanupRef.current?.()
+      cleanupRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -64,7 +67,9 @@ function Weekly() {
   }, [selectedWeek, selectedAuthor])
 
   useEffect(() => {
-    setWeeklyPage({ currentContent: summaries[template] || '' })
+    if (summaries && summaries[template] !== undefined) {
+      setWeeklyPage({ currentContent: summaries[template] })
+    }
   }, [template])
 
   const loadAccounts = async () => {
@@ -82,7 +87,8 @@ function Weekly() {
   const getWeekStart = (date: dayjs.Dayjs) => date.startOf('week')
 
   const loadCommits = async () => {
-    setLoading(true)
+    if (generating) return
+    setWeeklyPage({ loading: true })
     try {
       const date = getWeekStart(selectedWeek).format('YYYY-MM-DD')
       const result = await window.api.report.generateWeekly(date, selectedAuthor)
@@ -95,7 +101,7 @@ function Weekly() {
     } catch (error) {
       console.error('Failed to load commits:', error)
     } finally {
-      setLoading(false)
+      setWeeklyPage({ loading: false })
     }
   }
 
@@ -103,9 +109,15 @@ function Weekly() {
   const totalDeletions = commits.reduce((sum: number, c: any) => sum + (c.deletions || 0), 0)
 
   const generateReport = async () => {
-    setLoading(true)
+    if (commits.length === 0) {
+      message.warning('本周没有提交记录，无法生成周报')
+      return
+    }
+
+    setWeeklyPage({ generating: true, loading: true })
     try {
       const commitMessages = commits.map((c: any) => c.message)
+      const date = getWeekStart(selectedWeek).format('YYYY-MM-DD')
 
       cleanupRef.current?.()
       setWeeklyPage({ currentContent: '' })
@@ -114,23 +126,30 @@ function Weekly() {
         commitMessages,
         'weekly',
         template,
+        date,
+        selectedAuthor || '',
         (chunk) => {
           fullContent += chunk
           setWeeklyPage({ currentContent: fullContent })
         },
         async () => {
           const newSummaries = { ...summaries, [template]: fullContent }
-          setWeeklyPage({ summaries: newSummaries, currentContent: fullContent })
-          const date = getWeekStart(selectedWeek).format('YYYY-MM-DD')
-          await window.api.report.saveReport({ type: 'weekly', date, template, content: fullContent })
+          setWeeklyPage({ summaries: newSummaries, currentContent: fullContent, generating: false, loading: false })
           message.success('周报生成成功')
-          setLoading(false)
         }
       )
     } catch {
       message.error('生成失败')
-      setLoading(false)
+      setWeeklyPage({ generating: false, loading: false })
     }
+  }
+
+  const abortGenerate = () => {
+    window.api.ai.abortStream()
+    cleanupRef.current?.()
+    cleanupRef.current = null
+    setWeeklyPage({ generating: false, loading: false })
+    message.info('已中止生成')
   }
 
   const handleCopy = async () => {
@@ -187,6 +206,7 @@ function Weekly() {
               allowClear
               value={selectedAuthor}
               onChange={(value) => setWeeklyPage({ selectedAuthor: value })}
+              disabled={generating}
             >
               {accounts.map(account => (
                 <Select.Option key={account.id} value={account.username}>
@@ -197,6 +217,7 @@ function Weekly() {
             <WeekPicker
               value={selectedWeek}
               onChange={(date) => date && setWeeklyPage({ selectedWeek: date })}
+              disabled={generating}
             />
           </Space>
         }
@@ -265,7 +286,7 @@ function Weekly() {
             <Text strong>AI 生成总结</Text>
             <Radio.Group
               value={template}
-              onChange={(e) => setTemplate(e.target.value)}
+              onChange={(e) => setWeeklyPage({ template: e.target.value })}
               size="small"
               disabled={loading}
             >
@@ -275,7 +296,7 @@ function Weekly() {
             </Radio.Group>
           </Space>
 
-          <Spin spinning={loading}>
+          <Spin spinning={generating}>
             {isEditing ? (
               <TextArea
                 value={currentContent}
@@ -293,14 +314,24 @@ function Weekly() {
         </div>
 
         <Space>
-          <Button
-            type="primary"
-            icon={<ReloadOutlined />}
-            onClick={generateReport}
-            loading={loading}
-          >
-            重新生成
-          </Button>
+          {generating ? (
+            <Button
+              danger
+              icon={<StopOutlined />}
+              onClick={abortGenerate}
+            >
+              中止生成
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={generateReport}
+              loading={loading}
+            >
+              重新生成
+            </Button>
+          )}
           <Button
             icon={isEditing ? <CheckOutlined /> : <EditOutlined />}
             onClick={() => setIsEditing(!isEditing)}

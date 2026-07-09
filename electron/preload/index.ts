@@ -44,16 +44,19 @@ const api = {
   ai: {
     summarize: (commits: string[], type: 'daily' | 'weekly') =>
       ipcRenderer.invoke('ai:summarize', commits, type),
-    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', onChunk: (chunk: string) => void, onEnd: () => void) => {
+    summarizeStream: (commits: string[], type: 'daily' | 'weekly', template: 'technical' | 'concise' | 'detailed', date: string, author: string, onChunk: (chunk: string) => void, onEnd: () => void) => {
       const chunkHandler = (_: unknown, chunk: string) => onChunk(chunk)
       const endHandler = () => onEnd()
       ipcRenderer.on('ai:stream-chunk', chunkHandler)
       ipcRenderer.on('ai:stream-end', endHandler)
-      ipcRenderer.send('ai:summarize-stream', commits, type, template)
+      ipcRenderer.send('ai:summarize-stream', commits, type, template, date, author)
       return () => {
         ipcRenderer.removeListener('ai:stream-chunk', chunkHandler)
         ipcRenderer.removeListener('ai:stream-end', endHandler)
       }
+    },
+    abortStream: () => {
+      ipcRenderer.send('ai:abort-stream')
     },
     configure: (config: { provider: string; apiKey?: string; model?: string; baseUrl?: string }) =>
       ipcRenderer.invoke('ai:configure', config),
